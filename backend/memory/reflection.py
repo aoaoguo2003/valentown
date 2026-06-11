@@ -1,4 +1,4 @@
-from claude import ClaudeAPI
+from llm import LLMClient
 from memory.memory_system import ReflectionRecord
 
 
@@ -6,7 +6,7 @@ class Reflection:
     def __init__(self, memory_system, agent_name):
         self.memory_system = memory_system
         self.agent_name = agent_name
-        self.claude_api = ClaudeAPI()
+        self.llm = LLMClient()
 
     def generate_reflection(self, life_day=None):
         if life_day is not None:
@@ -34,13 +34,13 @@ class Reflection:
             "Generate 3 significant high-level questions about this agent's motives, relationships, or routines. "
             "Use plain English only. Return only the 3 questions."
         )
-        questions = self.claude_api.get_response(self.agent_name, question_context, "")
+        questions = self.llm.get_response(self.agent_name, question_context)
 
         reflection_context = (
             f"Answer these high-level questions using only {self.agent_name}'s recent rolling memories:\n{questions}\n"
             "Return 3 concise insights. Use plain English only."
         )
-        answer = self.claude_api.get_response(self.agent_name, reflection_context, "")
+        answer = self.llm.get_response(self.agent_name, reflection_context)
 
         print(f"{self.agent_name} is thinking:\n")
         print(answer, "\n")

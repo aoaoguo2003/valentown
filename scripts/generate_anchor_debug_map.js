@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
 
-const root = __dirname;
+const root = path.resolve(__dirname, '..');
 const gamePath = path.join(root, 'frontend', 'js', 'game.js');
 const outputPath = path.join(root, 'diagnostic_anchor_positions.svg');
 const jsonOutputPath = path.join(root, 'diagnostic_anchor_positions.json');

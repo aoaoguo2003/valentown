@@ -1,5 +1,4 @@
-from claude import ClaudeAPI
-import re
+from llm import LLMClient
 
 HOME_AREAS = [
     "Ron_home",
@@ -57,6 +56,37 @@ PUBLIC_LOCATIONS = [
     "Pharmacy.Consult_room",
 ]
 
+AGENT_NAMES = [
+    "Ron Parker",
+    "Ella Parker",
+    "Emma Harris",
+    "Gavin Harris",
+    "Adam Harris",
+    "Mia Thompson",
+    "Arthur Morgan",
+]
+
+# Decision bounds for one action, in game minutes.
+MIN_ACTION_MINUTES = 15
+MAX_ACTION_MINUTES = 180
+DEFAULT_ACTION_MINUTES = 60
+
+
+def build_allowed_destinations():
+    """Every navigable anchor an agent may pick as a destination. Bedrooms and
+    toilets are deliberately absent from HOME_ROOM_LOCATIONS, so privacy rules
+    are enforced by construction instead of by prompt instructions."""
+    home_locations = [
+        f"{home_area}.{room_name}"
+        for home_area in HOME_AREAS
+        for room_name in HOME_ROOM_LOCATIONS
+    ]
+    return home_locations + PUBLIC_LOCATIONS
+
+
+ALLOWED_DESTINATIONS = build_allowed_destinations()
+
+
 class Agent:
     def __init__(self, name, age, role, personality, goals, memory, location, character_description):
         self.name = name                # 代理姓名
@@ -66,192 +96,250 @@ class Agent:
         self.goals = goals              # goals of agents
         self.memory = memory            # 记忆系统对象（支持反思、持久化）
         self.location = location        # 初始位置
-        self.current_location = location  # 当前所在位置（每日规划后更新）
+        self.current_location = location  # 当前所在位置（随决策更新）
         self.character_description = character_description  # 自定义角色描述
-        self.claude_api = ClaudeAPI()
-        self.daily_plan = {}
-        self.communication_days = set()            # 初始化每日计划
+        self.llm = LLMClient()
 
-    def update_memory(self, new_memory, category="daily_plan", importance=4, life_day=None):
+    @property
+    def home_area(self):
+        first_name = self.name.split(" ")[0]
+        return f"{first_name}_home"
+
+    def update_memory(self, new_memory, category="action", importance=4, life_day=None):
         """Add a new memory to this agent's own rolling memory bank."""
         full_memory = f"{self.name}: {new_memory}"
         self.memory.add_memory(full_memory, category, importance, agent_name=self.name, life_day=life_day)
 
-    def generate_daily_plan(self, day_number=None):
-        self.memory.set_life_day(day_number or 1)
-        all_plans = self.memory.get_recent_plans(self.name)
-        plans_context = "\n".join(f"- {mem.content}" for mem in all_plans) \
-                        if all_plans else "No recent personal plans."
+    def record_completed_action(self, action_text, location, life_day=None):
+        """Persist a finished action so future decisions can build on it."""
+        if not action_text:
+            return
+        self.update_memory(
+            f"Did '{action_text}' at {location}.",
+            category="action",
+            importance=4,
+            life_day=life_day
+        )
 
-        my_reflections = self.memory.get_recent_reflections(self.name)
-        refl_context = "\n".join(f"- {mem.content}" for mem in my_reflections) \
-                    if my_reflections else f"No recent reflections for {self.name}."
+    def _recent_memory_context(self, limit=12):
+        records = self.memory.get_memories(agent_name=self.name)[:limit]
+        if not records:
+            return "No recent memories."
+        return "\n".join(f"- {record.content}" for record in records)
+
+    def decide_next_action(self, internal_state, triggers, day_number, time_text, current_location, last_action=None):
+        """Pick the next action via a forced function call; fall back to the
+        deterministic need-driven rules whenever the LLM is unavailable or
+        returns an invalid destination."""
+        self.memory.set_life_day(day_number or 1)
+
+        values = (internal_state or {}).get("values", {})
+        trigger_lines = "\n".join(
+            f"- {trigger['need']}: {trigger['reason']} (intent: {trigger['intent']})"
+            for trigger in (triggers or [])
+        ) or "- No urgent needs right now."
+        last_action_text = last_action or "Just woke up; nothing done yet today."
 
         context = (
-            f"Today is a new lived day in Valentown. "
-            f"Generate a unique daily plan for {self.name}. "
-            f"Here is a basic description of the person: {self.character_description.strip()} "
-            f"Use only {self.name}'s recent rolling memory from the last 15 lived days:\n{plans_context}\n"
-            f"And {self.name}'s personal reflection: {refl_context}.\n"
-            "Produce exactly five lines, in this order and format, with a concrete value after each label:\n"
-            "Wake-up time: <a clock time such as 6:30 AM>\n"
-            "Activity time: <a clock time such as 9:00 AM>\n"
-            "Return home time: <a clock time such as 5:00 PM>\n"
-            "Bedtime: <a clock time such as 10:00 PM>\n"
-            "Task for today: <about 10 words describing one activity>\n"
-            f"For the destination, {self.name} will pick exactly one of: Ron home, Ella home, "
-            "Arthur home, Mia home, Emma home, Gavin home, Adam home, Cafe bar shop, Supermarket, Pharmacy, or Park. "
-            f"For conversation, {self.name} will talk to exactly one of: Ron Parker, Ella Parker, "
-            "Emma Harris, Gavin Harris, Adam Harris, Mia Thompson, Arthur Morgan. "
-            "Use plain English only. Output only the five lines above and nothing else."
+            f"It is day {day_number}, {time_text} in Valentown. "
+            f"Here is a basic description of you: {self.character_description.strip()}\n"
+            f"You are currently at {current_location}.\n"
+            f"What you just finished: {last_action_text}\n"
+            f"Your internal needs (0-100): hunger {values.get('hunger', '?')}, "
+            f"energy {values.get('energy', '?')}, social {values.get('social', '?')}.\n"
+            f"Active need triggers:\n{trigger_lines}\n"
+            f"Your recent memories:\n{self._recent_memory_context()}\n"
+            "Decide the single next thing you will do. Satisfy urgent needs first; "
+            "otherwise act in character and vary your day. Use plain English only."
         )
-        
-        # Generate the plan through the configured Claude client.
-        plan_response = self.claude_api.get_response(self.name, context, "")
-        
-        if plan_response:
-            destination = self.select_destination(plan_response)
-            # 构造包含代理名字的记忆内容
-            memory_text = f"Generated daily plan for {self.name}: {plan_response}"
-            # 将生成的计划保存为 plan 类型的记忆
-            self.update_memory(memory_text, category="daily_plan", importance=5, life_day=day_number) #所有daily plan都是5
-            # 打印生成的每日计划
-            print(f"{self.name}'s daily plan: \n{plan_response}\n")
-            print(f"The destination is:", {destination})
-            return plan_response, destination
-        else:
-            print(f"Failed to generate daily plan for {self.name}.")
-            return None, None
 
-    def select_destination(self, daily_plan):
-        # Ask Claude to map the generated plan to a known navigation anchor.
-        home_locations = [
-            f"{home_area}.{room_name}"
-            for home_area in HOME_AREAS
-            for room_name in HOME_ROOM_LOCATIONS
-        ]
-        destination_options = "\n        ".join(home_locations + PUBLIC_LOCATIONS)
-        query = f"""
-        Given the daily plan: '{daily_plan}',
-        which of the following locations is most likely today's destination?
-        {destination_options}
+        other_names = [name for name in AGENT_NAMES if name != self.name]
+        parameters = {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "description": "What to do next, about 10 plain-English words."
+                },
+                "destination": {
+                    "type": "string",
+                    "enum": ALLOWED_DESTINATIONS,
+                    "description": "Where to do it. Must be one of the listed anchors."
+                },
+                "duration_minutes": {
+                    "type": "integer",
+                    "minimum": MIN_ACTION_MINUTES,
+                    "maximum": MAX_ACTION_MINUTES,
+                    "description": "How long the action takes, in game minutes."
+                },
+                "talk_to": {
+                    "type": "string",
+                    "enum": other_names + ["nobody"],
+                    "description": "Who to talk to while there, or 'nobody'."
+                }
+            },
+            "required": ["action", "destination", "duration_minutes", "talk_to"]
+        }
 
-        Do not choose another person's Bed or Toilet. For visits to someone else's home, prefer Living_room, Sofa, Chair, Porch, or Kitchen.
-        For furniture such as Dining_table, Desk, or Bookshelf, prefer a nearby usable spot such as Chair, Reading_chair, Study_corner, or Sofa.
+        decision = self.llm.call_tool(
+            self.name,
+            context,
+            tool_name="choose_next_action",
+            tool_description="Choose the single next action for this resident.",
+            parameters=parameters
+        )
 
-        Only choose one of the locations listed above. Do not generate any unnecessary words.
-        You only need to answer with the location name.
-        """
-        # Request a single destination from Claude.
-        response = self.claude_api.get_response(self.name, query, "")
-        
-        if response:
-            return response
-        else:
-            print(f"Failed to determine destination for {self.name}. Go to Park and have a relax")
-            return 'Park.Chair'
-    
-    def start_communicate(self, other_agents, current_location, day_number):
-        # 获取同一地点的其他agent（排除自己）
-        nearby_agents = [
-            agent for agent in other_agents 
-            if agent.current_location.split('.')[0] == current_location 
-            and agent != self
-        ]
+        validated = self._validate_decision(decision)
+        if validated:
+            validated["source"] = "llm"
+            return validated
 
-        if not nearby_agents:
+        fallback = self.fallback_next_action(triggers)
+        fallback["source"] = "fallback"
+        return fallback
+
+    def _validate_decision(self, decision):
+        """Defensive validation of the tool-call output; returns a normalized
+        decision dict or None when the structure cannot be trusted."""
+        if not isinstance(decision, dict):
             return None
 
-        # 找出比自己年轻的agent
-        younger_agents = sorted(
-            [agent for agent in nearby_agents if agent.age < self.age],
-            key=lambda x: x.age
-        )
+        destination = decision.get("destination")
+        if destination not in ALLOWED_DESTINATIONS:
+            return None
 
-        if not younger_agents:
-            return None  # 没有比自己年轻的agent则不触发
+        action = str(decision.get("action") or "").strip()
+        if not action:
+            return None
 
-        # 选择年龄最小的agent进行对话
-        target_agent = younger_agents[0]
-        
+        try:
+            duration = int(decision.get("duration_minutes"))
+        except (TypeError, ValueError):
+            duration = DEFAULT_ACTION_MINUTES
+        duration = max(MIN_ACTION_MINUTES, min(MAX_ACTION_MINUTES, duration))
+
+        talk_to = decision.get("talk_to")
+        if talk_to not in AGENT_NAMES or talk_to == self.name:
+            talk_to = "nobody"
+
+        return {
+            "action": action,
+            "destination": destination,
+            "duration_minutes": duration,
+            "talk_to": talk_to
+        }
+
+    def fallback_next_action(self, triggers):
+        """Deterministic need-driven rules used when the LLM is unavailable,
+        so the simulation never stalls."""
+        top_trigger = (triggers or [None])[0]
+        need = top_trigger.get("need") if isinstance(top_trigger, dict) else None
+
+        if need == "hunger":
+            return {
+                "action": "eat something at home",
+                "destination": f"{self.home_area}.Kitchen",
+                "duration_minutes": 45,
+                "talk_to": "nobody"
+            }
+        if need == "energy":
+            return {
+                "action": "rest on the sofa",
+                "destination": f"{self.home_area}.Sofa",
+                "duration_minutes": 60,
+                "talk_to": "nobody"
+            }
+        if need == "social":
+            return {
+                "action": "look for a friend in the park",
+                "destination": "Park.Bench",
+                "duration_minutes": 60,
+                "talk_to": "nobody"
+            }
+        return {
+            "action": "take a relaxing walk in the park",
+            "destination": "Park.Bench",
+            "duration_minutes": DEFAULT_ACTION_MINUTES,
+            "talk_to": "nobody"
+        }
+
+    def talk_with(self, target_agent, day_number, location):
+        """Generate a short two-line exchange with an explicitly chosen
+        partner; both sides remember the conversation."""
         self.memory.set_life_day(day_number or 1)
-        all_plans = self.memory.get_recent_plans(self.name)
-        plans_context = "\n".join(f"- {mem.content}" for mem in all_plans) \
-                        if all_plans else "No recent personal plans."
 
-        my_reflections = self.memory.get_recent_reflections(self.name)
-        refl_context_older = "\n".join(f"- {mem.content}" for mem in my_reflections) \
-                    if my_reflections else f"No recent reflections for {self.name}."
-
-        print(f'The plans of communication prompt:', plans_context)
         question_context = (
-            f"You are {self.name}, you should talk to {target_agent.name} now "
-            f"Based on your own recent rolling memory:\n{plans_context}\n"
-            f"And {self.name}'s personal reflection: {refl_context_older}"
+            f"You are {self.name}, talking to {target_agent.name} at {location}.\n"
+            f"Your recent memories:\n{self._recent_memory_context(limit=8)}\n"
             "Use plain English only. "
-            f"Nothing else you need to generate, just act as {self.name} ({self.age} years old) and generate a talk for about 10 words.(don't need to describe action)"
+            f"Just act as {self.name} ({self.age} years old) and say one line of about 10 words. "
+            "Do not describe actions."
         )
-        # Generate the initiating line through Claude.
-        question = self.claude_api.get_response(self.name, question_context, "")
+        question = self.llm.get_response(self.name, question_context)
         if not question:
             return None
-        
-        # 生成回答（年轻者回应）
+
         answer_context = (
-            f"You are {target_agent.name}, you should answer {self.name} now "
-            f"Based on his/her question:\n{question}\n"
+            f"You are {target_agent.name}, answering {self.name} at {location}.\n"
+            f"They just said: {question}\n"
             "Use plain English only. "
-            f"Nothing else you need to generate, just act as {target_agent.name} ({target_agent.age} years old) and generate a response for about 10 words."
+            f"Just act as {target_agent.name} ({target_agent.age} years old) and reply in about 10 words. "
+            "Do not describe actions."
         )
-        
-        answer = target_agent.claude_api.get_response(target_agent.name, answer_context, "")
+        answer = target_agent.llm.get_response(target_agent.name, answer_context)
         if not answer:
             return None
 
         # 保存双向记忆
-        self.update_memory(question, category="communication", importance=7, life_day=day_number)
-        target_agent.update_memory(answer, category="communication", importance=7, life_day=day_number)
-        
-        print("The question is:", question)
-        print("The answer is:", answer)
-        
-        self.communication_days.add(day_number)
+        self.update_memory(
+            f"Talked to {target_agent.name} at {location}: \"{question}\"",
+            category="communication",
+            importance=7,
+            life_day=day_number
+        )
+        target_agent.update_memory(
+            f"Replied to {self.name} at {location}: \"{answer}\"",
+            category="communication",
+            importance=7,
+            life_day=day_number
+        )
+
         return {
             "initiator": self.name,
             "responder": target_agent.name,
-            "location": current_location,
+            "location": location,
             "question": question,
             "answer": answer
         }
-    
+
 
 class RonParker(Agent):
     def __init__(self, memory, location):
         character_description = """
-        Ron Parker is a warm-hearted man in his 60s who co-owns the Valentown Supermarket with his wife, Ella. 
+        Ron Parker is a warm-hearted man in his 60s who co-owns the Valentown Supermarket with his wife, Ella.
         He's known for his generosity and helpful nature. Ron enjoys chatting with customers, offering advice.
         He's especially close to his wife, Ella.
         """
-        super().__init__("Ron Parker", 60, "Supermarket and Pharmacy Owner", "warm-hearted", 
+        super().__init__("Ron Parker", 60, "Supermarket and Pharmacy Owner", "warm-hearted",
                          ["chess enthusiasts", "run business", "enjoy relax"], memory, location, character_description)
 
 class EllaParker(Agent):
     def __init__(self, memory, location):
         character_description = """
-        Ella Parker is a compassionate and meticulous woman in her 58s, who co-owns the Valentown Pharmacy with her husband, Ron. 
+        Ella Parker is a compassionate and meticulous woman in her 58s, who co-owns the Valentown Pharmacy with her husband, Ron.
         She takes great pride in managing the pharmacy, always eager to help customers with their health needs and provide them with the best care.
         Ella is highly organized and ensures the business runs smoothly, complementing Ron's more sociable approach with her methodical and thoughtful nature.
         """
-        super().__init__("Ella Parker", 58, "Supermarket and Pharmacy Owner", "compassionate", 
+        super().__init__("Ella Parker", 58, "Supermarket and Pharmacy Owner", "compassionate",
                          ["manage pharmacy", "help customers", "humor"], memory, location, character_description)
 
 class EmmaHarris(Agent):
     def __init__(self, memory, location):
         character_description = """
-        Emma Harris is a dedicated and caring mother in her early 30s, living in Valentown with her husband, Gavin, and their 7-year-old son, Adam. 
+        Emma Harris is a dedicated and caring mother in her early 30s, living in Valentown with her husband, Gavin, and their 7-year-old son, Adam.
         As a full-time mother, Emma's life revolves around nurturing her family and maintaining a balanced household. She is kind-hearted, always willing to lend a helping hand to her neighbors and fellow parents, and is always happy to play with friends.
         """
-        super().__init__("Emma Harris", 30, "Mother", "caring", 
+        super().__init__("Emma Harris", 30, "Mother", "caring",
                          ["play with friends", "support community", "educate child"], memory, location, character_description)
 
 class GavinHarris(Agent):
@@ -260,7 +348,7 @@ class GavinHarris(Agent):
         Gavin Harris is a 32-year-old father and husband, known for his easygoing yet responsible nature. He is deeply committed to his family and plays an active role in raising his son, Adam, alongside his wife, Emma.
         Gavin enjoys spending time outdoors, often taking Adam to the park or engaging in sports with him. Gavin values a hands-on approach to fatherhood, and he often works together with Emma to create a nurturing home environment.
         """
-        super().__init__("Gavin Harris", 32, "Father", "responsible", 
+        super().__init__("Gavin Harris", 32, "Father", "responsible",
                          ["spend time with family", "work on family life", "love sport"], memory, location, character_description)
 
 class AdamHarris(Agent):
@@ -268,7 +356,7 @@ class AdamHarris(Agent):
         character_description = """
         Adam Harris is a lively and curious 7-year-old boy, full of energy and wonder about the world around him. He is bright and inquisitive, asking endless questions and eager to learn about everything he encounters. Adam enjoys exploring Valentown, often visiting the park with his parents or running errands to the supermarket with his dad.
         """
-        super().__init__("Adam Harris", 7, "Child", "curious", 
+        super().__init__("Adam Harris", 7, "Child", "curious",
                          ["explore", "learn from adults", "play with friends"], memory, location, character_description)
 
 class MiaThompson(Agent):
@@ -277,7 +365,7 @@ class MiaThompson(Agent):
         Mia Thompson is a thoughtful and compassionate young woman in her late 20s, working as a family teacher in Valentown. She is passionate about educating children and helping families navigate the challenges of raising young ones.
         Mia has a close, supportive relationship with the Harris family, especially with Emma, with whom she frequently discusses the best ways to nurture Adam’s education and development, and is always happy to play with friends.
         """
-        super().__init__("Mia Thompson", 28, "Family Teacher", "thoughtful", 
+        super().__init__("Mia Thompson", 28, "Family Teacher", "thoughtful",
                          ["teach children", "play with friends", "optimistic"], memory, location, character_description)
 
 class ArthurMorgan(Agent):
@@ -286,5 +374,5 @@ class ArthurMorgan(Agent):
         Arthur Morgan is a thoughtful and ambitious young architect in his late 20s, with a keen eye for design and a passion for creating spaces that foster community. He is known for his quiet, introspective nature, preferring to observe and reflect before engaging in conversation.
         Arthur often chats with Ron and Ella Parker about the layout of the supermarket and pharmacy, offering suggestions for improvements to optimize space and efficiency.
         """
-        super().__init__("Arthur Morgan", 29, "Architect", "reserved", 
+        super().__init__("Arthur Morgan", 29, "Architect", "reserved",
                          ["chess enthusiasts", "reflect on architecture", "work hard"], memory, location, character_description)

@@ -20,9 +20,9 @@ let agentState = {
     'Arthur Morgan': { moved: false, currentDay: 1 }
 };
 
-let dailyPlanInProgress = false; // 用来标记是否当前有代理正在展示计划并移动
-let currentPlanDay = 1;  // 当前展示计划的天数
-let conversationsPlayedByDay = {};
+let dailyPlanInProgress = false; // 标记当天的循环是否已初始化
+let currentPlanDay = 1;  // 当前生活日
+let conversationsInProgress = {};  // 正在播放对话的代理
 let simulationStarted = false;
 let simulationPaused = false;
 let nightInProgress = false;
@@ -33,12 +33,10 @@ let selectedAgentName = 'Ron Parker';
 let userControlledAgentName = null;
 let gameScene = null;
 let activeRouteLines = [];
-let returnHomeScheduledByDay = {};
 let agentReservations = {};
 let agentSchedules = {};
 let dailyScheduleLoadedByDay = {};
-let dailyScheduleLoadFailedByDay = {};
-let dailyScheduleRetryAtByDay = {};
+let agentCurrentActions = {};  // 每个代理当前正在执行的决策动作
 let currentTimeMinutes = 6 * 60;
 let lastProgressSyncAt = 0;
 let progressLoaded = false;
@@ -58,7 +56,22 @@ let manualControlLastSyncAt = 0;
 const DAY_START_MINUTES = 6 * 60;
 const DAY_END_MINUTES = 23 * 60;
 const SIM_MINUTES_PER_SECOND = 1;
-const HOME_WANDER_INTERVAL_MINUTES = 45;
+
+// Need-driven loop: deterministic wake/bed window, staggered per agent so the
+// town does not move in lockstep. Everything between wake and bed is decided
+// one action at a time by the backend (/decide_next_action).
+const DEFAULT_WAKE_MINUTES = 6 * 60 + 30;
+const WAKE_STAGGER_MINUTES = 10;
+const DEFAULT_BED_MINUTES = 22 * 60;
+const BED_STAGGER_MINUTES = 5;
+const DECISION_RETRY_MINUTES = 10;
+
+function computeDefaultSchedule(agentIndex) {
+    return {
+        wakeTime: Math.min(DEFAULT_WAKE_MINUTES + (agentIndex * WAKE_STAGGER_MINUTES), DAY_END_MINUTES - 60),
+        bedTime: Math.min(DEFAULT_BED_MINUTES + (agentIndex * BED_STAGGER_MINUTES), DAY_END_MINUTES)
+    };
+}
 const CAMERA_STEP = 42 * UNIT;
 const USER_CONTROL_SPEED_PIXELS_PER_SECOND = 58;
 const USER_CONTROL_WALK_RADIUS = 18;
@@ -92,7 +105,6 @@ const homeAreaByAgent = {
     'Adam Harris': 'Adam_home'
 };
 
-let agentPlans = {};
 let agentLocations = {
     'Ron Parker': 'Ron_home.Bed',
     'Ella Parker': 'Ella_home.Bed',
@@ -598,7 +610,6 @@ Object.entries(locations).forEach(([areaName, points]) => {
 });
 
 let currentBackground;
-let dailyConversationCount = 0; // 新增全局变量
 
 const navNodes = {
     ...buildHomeNavNodes(),
@@ -1161,7 +1172,6 @@ function setupUi() {
     });
 
     renderAgentList();
-    ensureAgentPlan(selectedAgentName, currentPlanDay);
     updateRouteControls();
 }
 
@@ -1224,8 +1234,6 @@ function renderAgentList() {
 function selectAgent(agentName) {
     selectedAgentName = agentName;
     refreshAgentTints();
-
-    ensureAgentPlan(agentName, currentPlanDay);
     updateRouteControls();
     updateUi();
 }
@@ -1293,9 +1301,10 @@ function enterUserControl(agentName) {
         state.sleeping = false;
         state.goingToBed = false;
         state.returning = false;
-        state.pendingHomeWander = false;
+        state.deciding = false;
         state.currentDay = currentPlanDay;
     }
+    clearCurrentAction(agentName);
 
     cancelAgentMotion(agentName);
     hideStatusBubble(agentName);
@@ -1354,10 +1363,12 @@ function reconcileAgentStateAfterManualRelease(agentName) {
     }
 
     releaseReservedLocation(agentName);
+    clearCurrentAction(agentName);
     state.currentDay = currentPlanDay;
     state.sleeping = false;
     state.goingToBed = false;
-    state.pendingHomeWander = false;
+    state.deciding = false;
+    state.nextDecisionRetryAt = null;
     state.manualOverride = false;
 
     if (!scheduleInfo) {
@@ -1368,48 +1379,21 @@ function reconcileAgentStateAfterManualRelease(agentName) {
     const currentLocation = agentLocations[agentName] || '';
     const atHome = isOwnHomeLocation(agentName, currentLocation);
     const atSleepLocation = currentLocation === formatSleepLocation(agentName);
-    const atDestination = currentLocation === scheduleInfo.destination;
 
     state.wokeUp = true;
     state.moved = false;
-
-    if (currentTimeMinutes < scheduleInfo.activityTime) {
-        state.taskStarted = false;
-        state.arrived = false;
-        state.returning = false;
-        state.returnedHome = atHome;
-        state.nextHomeWanderAt = currentTimeMinutes + 10;
-        agentPhases[agentName] = `Auto resumes at ${formatSimTime(scheduleInfo.activityTime)}`;
-        return;
-    }
-
-    if (currentTimeMinutes < scheduleInfo.returnTime) {
-        state.taskStarted = atDestination;
-        state.arrived = atDestination;
-        state.returning = false;
-        state.returnedHome = false;
-        state.nextHomeWanderAt = null;
-        agentPhases[agentName] = atDestination ? 'At destination' : 'Ready to resume activity';
-        return;
-    }
-
-    if (currentTimeMinutes < scheduleInfo.bedTime) {
-        state.taskStarted = true;
-        state.arrived = !atHome;
-        state.returning = false;
-        state.returnedHome = atHome;
-        state.nextHomeWanderAt = atHome ? currentTimeMinutes + 10 : null;
-        agentPhases[agentName] = atHome ? 'At home' : 'Ready to return home';
-        return;
-    }
-
-    state.taskStarted = true;
-    state.arrived = !atSleepLocation;
+    state.arrived = false;
     state.returning = false;
     state.returnedHome = atHome;
+
+    if (currentTimeMinutes < scheduleInfo.bedTime) {
+        // 白天：下一帧自动重新请求决策
+        agentPhases[agentName] = 'Ready to decide next action';
+        return;
+    }
+
     state.sleeping = atSleepLocation;
     state.moved = atSleepLocation;
-    state.nextHomeWanderAt = null;
     agentPhases[agentName] = atSleepLocation ? 'Sleeping' : atHome ? 'Ready for bed' : 'Ready to return home';
 }
 
@@ -1765,19 +1749,18 @@ function moveUserControlledAgent(direction, delta) {
     }
 }
 
-function ensureAgentPlan(agentName, day) {
-    if (agentPlans[agentName]?.[day]) {
-        return;
+function setCurrentAction(agentName, actionInfo) {
+    agentCurrentActions[agentName] = actionInfo;
+    if (selectedAgentName === agentName) {
+        updateUi();
     }
+}
 
-    getAgentDailyPlan(agentName, day).then(data => {
-        if (!data || !Array.isArray(data.daily_plan)) {
-            return;
-        }
-
-        const [plan, destination] = data.daily_plan;
-        rememberPlan(agentName, day, plan, destination);
-    });
+function clearCurrentAction(agentName) {
+    delete agentCurrentActions[agentName];
+    if (selectedAgentName === agentName) {
+        updateUi();
+    }
 }
 
 function updateUi() {
@@ -1807,15 +1790,15 @@ function updateUi() {
 function updateAgentPanel() {
     const profile = agentProfiles[selectedAgentName] || {};
     const displayDay = currentPlanDay;
-    const currentPlan = agentPlans[selectedAgentName]?.[displayDay] || {};
+    const currentAction = agentCurrentActions[selectedAgentName] || {};
     const conversations = agentConversations[selectedAgentName]?.[displayDay] || [];
 
     document.getElementById('agent-name').textContent = selectedAgentName;
     document.getElementById('agent-role').textContent = profile.role || 'Resident';
     document.getElementById('agent-location').textContent = formatLocation(agentLocations[selectedAgentName] || profile.home || 'Unknown');
     document.getElementById('agent-state').textContent = agentPhases[selectedAgentName] || 'Ready';
-    document.getElementById('agent-plan').textContent = currentPlan.plan || 'No plan loaded yet.';
-    document.getElementById('agent-destination').textContent = currentPlan.destination ? formatLocation(currentPlan.destination) : 'Waiting for simulation';
+    document.getElementById('agent-plan').textContent = currentAction.action || 'Deciding what to do next.';
+    document.getElementById('agent-destination').textContent = currentAction.destination ? formatLocation(currentAction.destination) : 'Waiting for simulation';
     document.getElementById('agent-schedule').textContent = formatAgentSchedule(selectedAgentName, displayDay);
 
     const conversationList = document.getElementById('conversation-list');
@@ -1859,21 +1842,10 @@ function updateClockUi() {
 function formatAgentSchedule(agentName, day) {
     const schedule = agentSchedules[day]?.[agentName];
     if (!schedule) {
-        return 'Waiting for plan';
+        return 'Waiting for day to start';
     }
 
-    return `Wake ${formatSimTime(schedule.wakeTime)} | Activity ${formatSimTime(schedule.activityTime)} | Return ${formatSimTime(schedule.returnTime)} | Bed ${formatSimTime(schedule.bedTime)}`;
-}
-
-function rememberPlan(agentName, day, plan, destination) {
-    if (!agentPlans[agentName]) {
-        agentPlans[agentName] = {};
-    }
-
-    agentPlans[agentName][day] = { plan, destination };
-    if (selectedAgentName === agentName) {
-        updateUi();
-    }
+    return `Wake ${formatSimTime(schedule.wakeTime)} | Bed ${formatSimTime(schedule.bedTime)}`;
 }
 
 function reserveDestination(agentName, requestedLocation) {
@@ -2081,56 +2053,14 @@ function formatMovementDestination(agentName, targetLocation) {
     return formatLocation(targetLocation);
 }
 
-function getHomeRoomAction(targetLocation) {
-    const roomName = getRoomName(targetLocation);
-    const roomActions = {
-        Kitchen: 'cook a meal',
-        Dining_table: 'eat a meal',
-        Dinning_room: 'eat a meal',
-        Living_room: 'watch TV',
-        Sofa: 'watch TV',
-        Chair: 'sit for a while',
-        Bed: 'rest',
-        Toilet: 'wash up',
-        Bookshelf: 'read',
-        Reading_chair: 'read',
-        Desk: 'study',
-        Study_corner: 'study',
-        Window: 'look outside',
-        Porch: 'get some air'
-    };
-
-    return roomActions[roomName] || 'rest';
-}
-
 function escapeHtml(value) {
     const div = document.createElement('div');
     div.textContent = value || '';
     return div.innerHTML;
 }
 
-function getPlanTaskText(plan) {
-    const match = String(plan || '').match(/Task for today:\s*([\s\S]*)/i);
-    return match ? match[1].trim() : String(plan || '').split('\n').pop();
-}
-
-function getActionTaskText(plan) {
-    return getPlanTaskText(plan)
-        .replace(/^Task for today:\s*/i, '')
-        .replace(/[。.!]+$/g, '')
-        .trim();
-}
-
 function getDestinationArea(locationName) {
     return formatLocation(getAreaName(locationName || 'Unknown'));
-}
-
-function buildMorningPlanText(agentName, scheduleInfo) {
-    return 'I am awake and ready to start the day.';
-}
-
-function buildActivityStartText(scheduleInfo) {
-    return `I am going to ${formatLocation(scheduleInfo.destination)} to ${getActionTaskText(scheduleInfo.plan)}.`;
 }
 
 function buildMovementSpeech(agentName, targetLocation, actionText = 'do an activity') {
@@ -2138,9 +2068,9 @@ function buildMovementSpeech(agentName, targetLocation, actionText = 'do an acti
     return `I am going to ${formatMovementDestination(agentName, targetLocation)} to ${taskText}.`;
 }
 
-function getMovementTaskText(agentName, day, fallbackAction = 'do an activity') {
-    const plan = agentPlans[agentName]?.[day]?.plan;
-    return plan ? (getActionTaskText(plan) || fallbackAction) : fallbackAction;
+function getCurrentActionText(agentName, fallbackAction = 'do an activity') {
+    const action = agentCurrentActions[agentName]?.action;
+    return action ? String(action).trim() : fallbackAction;
 }
 
 function announceMovementThen(scene, agentName, targetLocation, actionText, onReady) {
@@ -2170,58 +2100,8 @@ function announceMovementThen(scene, agentName, targetLocation, actionText, onRe
     return true;
 }
 
-function buildTomorrowThought(agentName, nextPlan, nextDestination) {
-    if (!nextPlan || !nextDestination) {
-        return 'I will sleep first and decide tomorrow after I wake up.';
-    }
-
-    const nextSchedule = parsePlanSchedule(nextPlan);
-    return `Tomorrow I will wake up around ${formatSimTime(nextSchedule.wakeTime)}, then decide where to go next.`;
-}
-
-function parsePlanSchedule(plan, agentIndex = 0) {
-    const wakeTime = parseTimeFromPlan(plan, 'Wake-up time') ?? (7 * 60);
-    const bedTime = parseTimeFromPlan(plan, 'Bedtime') ?? (22 * 60);
-    let activityTime = parseTimeFromPlan(plan, 'Activity time') ?? parseTimeFromPlan(plan, 'Task time');
-    let returnTime = parseTimeFromPlan(plan, 'Return home time');
-
-    if (activityTime === null) {
-        const latestComfortableStart = Math.max(wakeTime + 30, bedTime - 180);
-        activityTime = Math.min(wakeTime + 90 + (agentIndex * 5), latestComfortableStart);
-    }
-
-    if (returnTime === null) {
-        returnTime = Math.min(Math.max(activityTime + 180, bedTime - 90), bedTime - 30);
-    }
-
-    return {
-        wakeTime,
-        activityTime: Phaser.Math.Clamp(activityTime, DAY_START_MINUTES, DAY_END_MINUTES),
-        returnTime: Phaser.Math.Clamp(returnTime, DAY_START_MINUTES + 30, DAY_END_MINUTES),
-        bedTime: Phaser.Math.Clamp(bedTime, DAY_START_MINUTES + 60, DAY_END_MINUTES)
-    };
-}
-
-function parseTimeFromPlan(plan, label) {
-    const pattern = new RegExp(`${label}\\s*:\\s*[^\\d\\n]*(\\d{1,2})(?::(\\d{2}))?\\s*(AM|PM)`, 'i');
-    const match = String(plan || '').match(pattern);
-
-    if (!match) {
-        return null;
-    }
-
-    let hours = Number(match[1]);
-    const minutes = Number(match[2] || 0);
-    const period = match[3].toUpperCase();
-
-    if (period === 'PM' && hours !== 12) {
-        hours += 12;
-    }
-    if (period === 'AM' && hours === 12) {
-        hours = 0;
-    }
-
-    return (hours * 60) + minutes;
+function buildTomorrowThought(agentName) {
+    return 'Time to sleep. I will decide what to do tomorrow after I wake up.';
 }
 
 function formatSimTime(minutes) {
@@ -2420,19 +2300,58 @@ function getSimulationConfig() {
 }
 
 // 从后端获取代理的每日计划
-function getAgentDailyPlan(agentName, day) {
-    return fetch(`${BACKEND_BASE_URL}/get_daily_plan?agent_name=${agentName}&life_day=${day}`)
+// 请求后端为代理决定下一步动作（需求驱动决策）
+function fetchNextDecision(agentName, lastAction = null) {
+    return fetch(`${BACKEND_BASE_URL}/decide_next_action`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            agent_name: agentName,
+            day: currentPlanDay,
+            time: formatSimTime(currentTimeMinutes),
+            current_location: agentLocations[agentName] || null,
+            last_action: lastAction
+        })
+    })
         .then(response => {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
             return response.json();
+        });
+}
+
+// 请求后端为两位同区域的代理生成一段对话
+function fetchConversation(initiatorName, responderName, location) {
+    return fetch(`${BACKEND_BASE_URL}/generate_conversation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            initiator: initiatorName,
+            responder: responderName,
+            location: location,
+            day: currentPlanDay
         })
-        .then(data => {
-            console.log("Data received from backend:", data);
-            return data;
-        })
-        .catch(error => console.error("Error fetching daily plan:", error));
+    })
+        .then(response => response.ok ? response.json() : null)
+        .catch(error => {
+            console.warn('Conversation generation failed:', error);
+            return null;
+        });
+}
+
+// 通知后端进入新的一天（触发反思与进度持久化）
+function notifyNewDay(lifeDay) {
+    return fetch(`${BACKEND_BASE_URL}/start_new_day`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ life_day: lifeDay })
+    })
+        .then(response => response.ok ? response.json() : null)
+        .catch(error => {
+            console.warn('Failed to notify backend of new day:', error);
+            return null;
+        });
 }
 
 // 从后端获取当天的所有对话记录
@@ -2457,8 +2376,6 @@ function getDailyConversations(day, location = null) {
                 return [];
             }
             
-            console.log(`Received ${data.conversations.length} conversations for day ${day}`);
-            dailyConversationCount = data.conversations.length;
             return data.conversations;
         })
         .catch(error => {
@@ -3137,52 +3054,89 @@ function placeAgentAtLocation(scene, agentName, locationName, pose = null) {
     }
 }
 
-function moveAgentWithPlan(agentName, targetLocation, day) {
-    getAgentDailyPlan(agentName, day).then(data => {
-        if (!data || !Array.isArray(data.daily_plan)) {
-            console.error(`Invalid daily plan for ${agentName}:`, data);
-            dailyScheduleLoadFailedByDay[day] = true;
-            agentState[agentName].moved = false;
-            agentState[agentName].currentDay = currentPlanDay;
-            agentPhases[agentName] = 'Plan unavailable';
+// 向后端请求下一步决策，并执行返回的动作
+function requestNextDecision(scene, agentName) {
+    const state = agentState[agentName];
+    if (!state || state.deciding) {
+        return;
+    }
+    if (state.nextDecisionRetryAt && currentTimeMinutes < state.nextDecisionRetryAt) {
+        return;
+    }
+
+    state.deciding = true;
+    agentPhases[agentName] = 'Deciding what to do next';
+    updateUi();
+
+    fetchNextDecision(agentName, state.lastCompletedAction || null)
+        .then(data => {
+            state.deciding = false;
+            const decision = data?.decision;
+            if (!decision || !decision.destination) {
+                throw new Error('Empty decision');
+            }
+
+            state.nextDecisionRetryAt = null;
+            startDecidedAction(scene, agentName, decision);
+        })
+        .catch(error => {
+            console.warn(`Decision request failed for ${agentName}:`, error);
+            state.deciding = false;
+            state.nextDecisionRetryAt = currentTimeMinutes + DECISION_RETRY_MINUTES;
+            agentPhases[agentName] = 'Waiting to retry decision';
             updateUi();
-            return;
-        }
+        });
+}
 
-        let [dailyPlan, destination] = data.daily_plan;
-        agentPhases[agentName] = 'Reading plan';
+// 执行一条决策：预约目的地并移动过去
+function startDecidedAction(scene, agentName, decision) {
+    const state = agentState[agentName];
+    const assignedDestination = reserveDestination(agentName, decision.destination);
 
-        if (!destination) {
-            console.error(`Error: No destination found for ${agentName}`);
-            dailyScheduleLoadFailedByDay[day] = true;
-            agentState[agentName].moved = false;
-            agentState[agentName].currentDay = currentPlanDay;
-            agentPhases[agentName] = 'Plan unavailable';
-            updateUi();
-            return;
-        }
-
-        const assignedDestination = reserveDestination(agentName, destination);
-        rememberPlan(agentName, day, dailyPlan, assignedDestination);
-        updateUi();
-        console.log(`Reserved ${assignedDestination} for ${agentName}`);
-
-        moveAgent.call(this, agentName, assignedDestination, day);
-    }).catch(error => {
-        console.error(`Failed to fetch plan for ${agentName}: ${error}`);
-        dailyScheduleLoadFailedByDay[day] = true;
-        agentState[agentName].moved = false;
-        agentState[agentName].currentDay = currentPlanDay;
-        agentPhases[agentName] = 'Plan unavailable';
-        updateUi();
+    setCurrentAction(agentName, {
+        action: decision.action,
+        destination: assignedDestination,
+        durationMinutes: decision.duration_minutes,
+        talkTo: decision.talk_to && decision.talk_to !== 'nobody' ? decision.talk_to : null,
+        endsAtMinutes: null,
+        source: decision.source || 'llm'
     });
+    state.arrived = false;
+
+    if (assignedDestination === agentLocations[agentName]) {
+        // 已在目的地：直接开始动作
+        beginActionAtDestination(scene, agentName, assignedDestination);
+        return;
+    }
+
+    moveAgent.call(scene, agentName, assignedDestination, currentPlanDay);
+}
+
+// 到达目的地后：起算动作时长、上报状态、尝试触发对话
+function beginActionAtDestination(scene, agentName, targetLocation) {
+    const state = agentState[agentName];
+    const currentAction = agentCurrentActions[agentName];
+    const actionText = getCurrentActionText(agentName);
+
+    state.arrived = true;
+    if (currentAction) {
+        currentAction.endsAtMinutes = currentTimeMinutes + (currentAction.durationMinutes || 60);
+    }
+
+    agentPhases[agentName] = `Doing: ${actionText}`;
+    applyAgentPoseForLocation(agentName, targetLocation);
+    showStatusEmoji(scene, agentName, targetLocation, actionText);
+    syncAgentActionState(agentName, targetLocation, actionText);
+    updateUi();
+    syncSimulationProgress({ force: true });
+    maybeStartDecisionConversation(scene, agentName);
 }
 
 // 移动执行函数
 function moveAgent(agentName, targetLocation, day) {
     const keys = targetLocation.split('.');
     let coords = locations;
-    
+
     for (const k of keys) {
         if (!coords[k]) {
             console.error(`Error: Location ${targetLocation} not defined`);
@@ -3204,7 +3158,7 @@ function moveAgent(agentName, targetLocation, day) {
         return;
     }
 
-    const actionText = getMovementTaskText(agentName, day, 'do an activity');
+    const actionText = getCurrentActionText(agentName);
 
     announceMovementThen(this, agentName, targetLocation, actionText, () => {
         if (!agents[agentName]) {
@@ -3218,36 +3172,27 @@ function moveAgent(agentName, targetLocation, day) {
 
         moveAgentOrthogonally.call(this, agentName, agents[agentName], tx, ty, targetLocation, () => {
             agents[agentName].isMoving = false;
-            agentPhases[agentName] = 'At destination';
             agentLocations[agentName] = targetLocation;
-            agentState[agentName].arrived = true;
-            applyAgentPoseForLocation(agentName, targetLocation);
-            showStatusEmoji(this, agentName, targetLocation, actionText);
-            syncAgentActionState(agentName, targetLocation, actionText);
-            updateUi();
-            syncSimulationProgress({ force: true });
-            maybeStartTimedConversations.call(this, day);
+            beginActionAtDestination(this, agentName, targetLocation);
         });
     });
 }
 
-function scheduleReturnHomeAfterConversations(day, conversationCount) {
-    if (returnHomeScheduledByDay[day]) {
+// 当前动作结束：上报完成、写入历史，下一帧重新决策
+function completeCurrentAction(scene, agentName) {
+    const state = agentState[agentName];
+    const currentAction = agentCurrentActions[agentName];
+    if (!currentAction) {
         return;
     }
 
-    returnHomeScheduledByDay[day] = true;
-    const conversationDuration = conversationCount > 0
-        ? ((conversationCount - 1) * 10000) + 4000 + 5000
-        : 5000;
-
-    schedule(this, conversationDuration, () => {
-        Object.keys(agentState).forEach(agentName => {
-            if (!agentState[agentName].moved && agentState[agentName].currentDay === day) {
-                moveAgentToInitialPosition.call(this, agentName, agentLocations[agentName]);
-            }
-        });
-    });
+    const actionText = getCurrentActionText(agentName);
+    state.lastCompletedAction = `${actionText} (at ${formatLocation(currentAction.destination)})`;
+    state.arrived = false;
+    clearCurrentAction(agentName);
+    hideStatusBubble(agentName);
+    agentPhases[agentName] = 'Finished activity';
+    updateUi();
 }
 
 function hydrateTimedDayState(scene, useRestoredPositions = false) {
@@ -3262,20 +3207,18 @@ function hydrateTimedDayState(scene, useRestoredPositions = false) {
 
         const currentLocation = agentLocations[agentName] || formatSleepLocation(agentName);
         const sleepLocation = formatSleepLocation(agentName);
-        const atHome = isOwnHomeLocation(agentName, currentLocation);
         const atSleepLocation = currentLocation === sleepLocation;
-        const atDestination = currentLocation === scheduleInfo.destination;
         let inferredLocation = currentLocation;
         let inferredPose = null;
 
         state.currentDay = currentPlanDay;
-        state.taskStarted = false;
         state.arrived = false;
         state.returning = false;
         state.returnedHome = false;
         state.moved = false;
         state.goingToBed = false;
-        state.pendingHomeWander = false;
+        state.deciding = false;
+        state.nextDecisionRetryAt = null;
         state.bedtimeThoughtShown = false;
 
         if (currentTimeMinutes < scheduleInfo.wakeTime) {
@@ -3284,34 +3227,14 @@ function hydrateTimedDayState(scene, useRestoredPositions = false) {
             inferredLocation = sleepLocation;
             inferredPose = 'lie';
             agentPhases[agentName] = `Sleeping until ${formatSimTime(scheduleInfo.wakeTime)}`;
-        } else if (currentTimeMinutes < scheduleInfo.activityTime) {
-            state.wokeUp = true;
-            state.sleeping = false;
-            state.nextHomeWanderAt = currentTimeMinutes + 8;
-            inferredLocation = getDefaultHomeActivityLocation(agentName);
-            agentPhases[agentName] = `Awake, leaves at ${formatSimTime(scheduleInfo.activityTime)}`;
-        } else if (currentTimeMinutes < scheduleInfo.returnTime) {
-            state.wokeUp = true;
-            state.sleeping = false;
-            state.taskStarted = useRestoredPositions ? atDestination : true;
-            state.arrived = useRestoredPositions ? atDestination : true;
-            state.nextHomeWanderAt = null;
-            inferredLocation = scheduleInfo.destination;
-            agentPhases[agentName] = state.arrived ? 'At destination' : 'Ready to continue activity';
         } else if (currentTimeMinutes < scheduleInfo.bedTime) {
+            // 醒着：从当前位置（恢复的或家中）继续，下一帧会重新请求决策
             state.wokeUp = true;
             state.sleeping = false;
-            state.taskStarted = true;
-            state.arrived = useRestoredPositions ? !atHome : false;
-            state.returnedHome = useRestoredPositions ? atHome : true;
-            state.nextHomeWanderAt = state.returnedHome ? currentTimeMinutes + 8 : null;
-            inferredLocation = getDefaultHomeActivityLocation(agentName);
-            agentPhases[agentName] = state.returnedHome ? 'At home' : 'Ready to return home';
+            inferredLocation = useRestoredPositions ? currentLocation : getDefaultHomeActivityLocation(agentName);
+            agentPhases[agentName] = 'Ready to decide next action';
         } else {
             state.wokeUp = true;
-            state.taskStarted = true;
-            state.arrived = useRestoredPositions ? !atHome : false;
-            state.returnedHome = useRestoredPositions ? atHome : true;
             state.sleeping = useRestoredPositions ? atSleepLocation : true;
             state.moved = state.sleeping;
             inferredLocation = sleepLocation;
@@ -3334,20 +3257,12 @@ function hydrateTimedDayState(scene, useRestoredPositions = false) {
 }
 
 function prepareTimedDay(scene) {
-    const retryAt = dailyScheduleRetryAtByDay[currentPlanDay] || 0;
-    if (retryAt && Date.now() < retryAt) {
-        return;
-    }
-
     const restoredTimeMinutes = currentTimeMinutes;
     dailyPlanInProgress = true;
-    dailyScheduleLoadedByDay[currentPlanDay] = false;
-    dailyScheduleLoadFailedByDay[currentPlanDay] = false;
     agentSchedules[currentPlanDay] = {};
     currentTimeMinutes = Phaser.Math.Clamp(restoredTimeMinutes, DAY_START_MINUTES, DAY_END_MINUTES);
-    conversationsPlayedByDay[currentPlanDay] = false;
-    returnHomeScheduledByDay[currentPlanDay] = false;
     agentReservations = {};
+    agentCurrentActions = {};
 
     Object.keys(occupiedLocations).forEach(key => {
         occupiedLocations[key] = null;
@@ -3361,7 +3276,7 @@ function prepareTimedDay(scene) {
     );
     const shouldResumeDay = restoredTimeMinutes > DAY_START_MINUTES;
 
-    agentNames.forEach(agentName => {
+    agentNames.forEach((agentName, index) => {
         hideStatusBubble(agentName);
         if (!shouldResumeDay) {
             resetAgentToSleepPosition(scene, agentName);
@@ -3371,72 +3286,37 @@ function prepareTimedDay(scene) {
             ...agentState[agentName],
             moved: false,
             currentDay: currentPlanDay,
-            taskStarted: false,
             arrived: false,
             returning: false,
             returnedHome: false,
             wokeUp: false,
             sleeping: true,
             bedtimeThoughtShown: false,
-            nextHomeWanderAt: null,
-            pendingHomeWander: false,
-            goingToBed: false
+            goingToBed: false,
+            deciding: false,
+            nextDecisionRetryAt: null,
+            lastCompletedAction: null
         };
-        agentPhases[agentName] = 'Loading schedule';
+
+        // 起居时间为确定性规则：不依赖 LLM，仿真永远可以推进
+        agentSchedules[currentPlanDay][agentName] = computeDefaultSchedule(index);
+        agentPhases[agentName] = `Sleeping until ${formatSimTime(agentSchedules[currentPlanDay][agentName].wakeTime)}`;
         if (!shouldResumeDay) {
             showSleepBubble(scene, agentName);
         }
     });
+
+    dailyScheduleLoadedByDay[currentPlanDay] = true;
+    hydrateTimedDayState(scene, useRestoredPositions);
     updateUi();
-
-    Promise.all(agentNames.map((agentName, index) => {
-        return getAgentDailyPlan(agentName, currentPlanDay)
-            .then(data => {
-                if (!data || !Array.isArray(data.daily_plan)) {
-                    throw new Error(`Invalid daily plan for ${agentName}`);
-                }
-
-                const [plan, destination] = data.daily_plan;
-                const parsedSchedule = parsePlanSchedule(plan, index);
-                agentSchedules[currentPlanDay][agentName] = {
-                    ...parsedSchedule,
-                    plan,
-                    requestedDestination: destination,
-                    destination
-                };
-                rememberPlan(agentName, currentPlanDay, plan, destination);
-                agentPhases[agentName] = `Sleeping until ${formatSimTime(parsedSchedule.wakeTime)}`;
-            })
-            .catch(error => {
-                console.error(`Failed to prepare schedule for ${agentName}:`, error);
-                dailyScheduleLoadFailedByDay[currentPlanDay] = true;
-                agentState[agentName].moved = false;
-                agentState[agentName].currentDay = currentPlanDay;
-                agentPhases[agentName] = 'Plan unavailable';
-            });
-    })).then(() => {
-        if (dailyScheduleLoadFailedByDay[currentPlanDay]) {
-            dailyScheduleLoadedByDay[currentPlanDay] = false;
-            dailyPlanInProgress = false;
-            dailyScheduleRetryAtByDay[currentPlanDay] = Date.now() + 15000;
-            Object.keys(agentPhases).forEach(agentName => {
-                if (agentPhases[agentName] === 'Plan unavailable') {
-                    return;
-                }
-                agentPhases[agentName] = 'Waiting for schedule retry';
-            });
+    if (shouldResumeDay) {
+        syncSimulationProgress({ force: true });
+        // 恢复进度时回填当天已发生的对话记录
+        getDailyConversations(currentPlanDay).then(conversations => {
+            conversations.forEach(conversation => rememberConversation(currentPlanDay, conversation));
             updateUi();
-            return;
-        }
-
-        dailyScheduleLoadedByDay[currentPlanDay] = true;
-        dailyScheduleRetryAtByDay[currentPlanDay] = 0;
-        hydrateTimedDayState(scene, useRestoredPositions);
-        updateUi();
-        if (shouldResumeDay) {
-            syncSimulationProgress({ force: true });
-        }
-    });
+        });
+    }
 }
 
 function advanceSimulationClock(delta) {
@@ -3466,181 +3346,71 @@ function runTimedDayActions(scene) {
             return;
         }
 
+        const agentSprite = agents[agentName];
+        const busyMoving = agentSprite?.isMoving || agentSprite?.isPreparingToMove;
+
+        // 1. 起床
         if (!state.wokeUp && currentTimeMinutes >= scheduleInfo.wakeTime) {
             state.wokeUp = true;
             state.sleeping = false;
-            state.nextHomeWanderAt = currentTimeMinutes + 20;
             syncAgentActionState(agentName, agentLocations[agentName], 'wake up', { sleeping: true });
             hideSleepBubble(agentName);
             hideStatusBubble(agentName);
             setAgentPose(agentName, 'stand');
-            agentPhases[agentName] = `Awake, leaves at ${formatSimTime(scheduleInfo.activityTime)}`;
+            agentPhases[agentName] = 'Awake';
             updateUi();
             return;
         }
 
-        maybeWanderAtHome(scene, agentName, scheduleInfo);
-
-        if (state.wokeUp && !state.taskStarted && currentTimeMinutes >= scheduleInfo.activityTime) {
-            startTimedTask(scene, agentName, scheduleInfo);
+        if (!state.wokeUp || state.sleeping) {
             return;
         }
 
-        if (
-            state.taskStarted &&
-            state.arrived &&
-            !state.returning &&
-            !agents[agentName]?.isMoving &&
-            !agents[agentName]?.isPreparingToMove &&
-            currentTimeMinutes >= scheduleInfo.returnTime
-        ) {
-            state.returning = true;
-            moveAgentToInitialPosition.call(scene, agentName, agentLocations[agentName]);
+        const currentAction = agentCurrentActions[agentName];
+        const pastBedtime = currentTimeMinutes >= scheduleInfo.bedTime;
+
+        // 2. 睡前流程：到点后不再开新动作，回家上床
+        if (pastBedtime) {
+            if (busyMoving || conversationsInProgress[agentName]) {
+                return;
+            }
+            if (currentAction) {
+                completeCurrentAction(scene, agentName);
+                return;
+            }
+            if (!state.returnedHome && !state.returning) {
+                state.returning = true;
+                moveAgentToInitialPosition.call(scene, agentName, agentLocations[agentName]);
+                return;
+            }
+            if (state.returnedHome && !state.bedtimeThoughtShown) {
+                state.bedtimeThoughtShown = true;
+                showAgentSpeech.call(scene, agentName, buildTomorrowThought(agentName));
+            }
+            if (state.returnedHome && !state.goingToBed) {
+                moveAgentToSleepPosition(scene, agentName);
+            }
             return;
         }
 
-        if (
-            state.returnedHome &&
-            !state.bedtimeThoughtShown &&
-            !agents[agentName]?.isMoving &&
-            !agents[agentName]?.isPreparingToMove &&
-            currentTimeMinutes >= Math.max(scheduleInfo.returnTime, scheduleInfo.bedTime - 40)
-        ) {
-            state.bedtimeThoughtShown = true;
-            showTomorrowThought(scene, agentName, currentPlanDay);
+        // 3. 白天循环：动作结束 → 完成上报 → 请求下一条决策
+        if (busyMoving || state.deciding || conversationsInProgress[agentName]) {
+            return;
         }
 
-        if (
-            state.returnedHome &&
-            !state.sleeping &&
-            !state.goingToBed &&
-            !agents[agentName]?.isMoving &&
-            !agents[agentName]?.isPreparingToMove &&
-            currentTimeMinutes >= scheduleInfo.bedTime
-        ) {
-            moveAgentToSleepPosition(scene, agentName);
+        if (currentAction) {
+            if (
+                state.arrived &&
+                currentAction.endsAtMinutes !== null &&
+                currentTimeMinutes >= currentAction.endsAtMinutes
+            ) {
+                completeCurrentAction(scene, agentName);
+            }
+            return;
         }
+
+        requestNextDecision(scene, agentName);
     });
-
-    if (currentTimeMinutes >= DAY_END_MINUTES) {
-        Object.keys(agentState).forEach(agentName => {
-            const state = agentState[agentName];
-            if (!state.moved && !state.returning && !agents[agentName]?.isMoving && !agents[agentName]?.isPreparingToMove) {
-            state.returning = true;
-            moveAgentToInitialPosition.call(scene, agentName, agentLocations[agentName]);
-        }
-        });
-    }
-}
-
-function startTimedTask(scene, agentName, scheduleInfo) {
-    const state = agentState[agentName];
-    if (state.taskStarted || agents[agentName]?.isMoving || agents[agentName]?.isPreparingToMove) {
-        return;
-    }
-
-    state.taskStarted = true;
-    state.arrived = false;
-
-    const assignedDestination = reserveDestination(agentName, scheduleInfo.destination);
-    scheduleInfo.destination = assignedDestination;
-    rememberPlan(agentName, currentPlanDay, scheduleInfo.plan, assignedDestination);
-
-    agentPhases[agentName] = `Activity starts ${formatSimTime(scheduleInfo.activityTime)}`;
-    updateUi();
-    moveAgent.call(scene, agentName, assignedDestination, currentPlanDay);
-}
-
-function maybeWanderAtHome(scene, agentName, scheduleInfo) {
-    const state = agentState[agentName];
-    const agent = agents[agentName];
-
-    if (
-        !state.wokeUp ||
-        state.sleeping ||
-        state.returning ||
-        state.goingToBed ||
-        agent?.isMoving ||
-        agent?.isPreparingToMove ||
-        state.pendingHomeWander ||
-        currentTimeMinutes < (state.nextHomeWanderAt || Infinity)
-    ) {
-        return;
-    }
-
-    const beforeActivity = !state.taskStarted && currentTimeMinutes < scheduleInfo.activityTime - 8;
-    const afterReturn = state.returnedHome && currentTimeMinutes < scheduleInfo.bedTime - 8;
-
-    if (!beforeActivity && !afterReturn) {
-        return;
-    }
-
-    const targetLocation = pickHomeWanderLocation(agentName);
-    if (!targetLocation || targetLocation === agentLocations[agentName]) {
-        state.nextHomeWanderAt = currentTimeMinutes + 15;
-        return;
-    }
-
-    const coords = getLocationCoords(targetLocation);
-    if (!coords) {
-        state.nextHomeWanderAt = currentTimeMinutes + HOME_WANDER_INTERVAL_MINUTES;
-        return;
-    }
-
-    state.pendingHomeWander = true;
-    setAgentPose(agentName, 'stand');
-
-    const wR = scene.sys.game.config.width / 160;
-    const hR = scene.sys.game.config.height / 90;
-    const homeAction = getHomeRoomAction(targetLocation);
-
-    const announced = announceMovementThen(scene, agentName, targetLocation, homeAction, () => {
-        if (!agents[agentName]) {
-            return;
-        }
-
-        const movingAgent = agents[agentName];
-        setAgentPose(agentName, 'stand');
-        movingAgent.isMoving = true;
-        agentPhases[agentName] = `At home: ${formatMovementDestination(agentName, targetLocation)}`;
-        updateUi();
-
-        moveAgentOrthogonally.call(scene, agentName, movingAgent, coords.x * wR, coords.y * hR, targetLocation, () => {
-            movingAgent.isMoving = false;
-            state.pendingHomeWander = false;
-            agentLocations[agentName] = targetLocation;
-            state.nextHomeWanderAt = currentTimeMinutes + HOME_WANDER_INTERVAL_MINUTES;
-            agentPhases[agentName] = 'At home';
-            applyAgentPoseForLocation(agentName, targetLocation);
-            showStatusEmoji(scene, agentName, targetLocation, homeAction);
-            syncAgentActionState(agentName, targetLocation, homeAction);
-            updateUi();
-            syncSimulationProgress({ force: true });
-        });
-    });
-
-    if (!announced) {
-        state.pendingHomeWander = false;
-        state.nextHomeWanderAt = currentTimeMinutes + 5;
-    }
-}
-
-function pickHomeWanderLocation(agentName) {
-    const homeArea = getAreaName(formatInitialLocation(agentName));
-    const homeLocations = Object.keys(locationToNode).filter(locationName =>
-        getAreaName(locationName) === homeArea &&
-        !locationName.includes('.Porch') &&
-        !sleepOnlyLocations.has(locationName) &&
-        !locationName.endsWith('.Bed') &&
-        locationName !== agentLocations[agentName]
-    );
-
-    if (!homeLocations.length) {
-        return null;
-    }
-
-    const index = Math.floor(Math.random() * homeLocations.length);
-    return homeLocations[index];
 }
 
 function getLocationCoords(locationName) {
@@ -3657,46 +3427,45 @@ function getLocationCoords(locationName) {
     return coords;
 }
 
-function showTomorrowThought(scene, agentName, day) {
-    getAgentDailyPlan(agentName, day + 1).then(data => {
-        if (!data || !Array.isArray(data.daily_plan)) {
-            showAgentSpeech.call(scene, agentName, buildTomorrowThought(agentName, null, null));
+// 决策中带 talk_to 且对方就在同一区域时，请求一段对话并播放
+function maybeStartDecisionConversation(scene, agentName) {
+    const currentAction = agentCurrentActions[agentName];
+    const targetName = currentAction?.talkTo;
+    if (!targetName || !agentState[targetName]) {
+        return;
+    }
+    if (conversationsInProgress[agentName] || conversationsInProgress[targetName]) {
+        return;
+    }
+
+    const myArea = getAreaName(agentLocations[agentName] || '');
+    const targetArea = getAreaName(agentLocations[targetName] || '');
+    const targetState = agentState[targetName];
+    if (!myArea || myArea !== targetArea || targetState.sleeping) {
+        return;
+    }
+
+    conversationsInProgress[agentName] = true;
+    conversationsInProgress[targetName] = true;
+
+    fetchConversation(agentName, targetName, myArea).then(data => {
+        const convo = data?.conversation;
+        if (!convo) {
+            conversationsInProgress[agentName] = false;
+            conversationsInProgress[targetName] = false;
             return;
         }
 
-        const [nextPlan, nextDestination] = data.daily_plan;
-        showAgentSpeech.call(scene, agentName, buildTomorrowThought(agentName, nextPlan, nextDestination));
-    });
-}
-
-function maybeStartTimedConversations(day) {
-    if (conversationsPlayedByDay[day]) {
-        return;
-    }
-
-    const allArrived = Object.values(agentState).every(state =>
-        state.currentDay === day &&
-        state.taskStarted &&
-        (state.arrived || state.moved)
-    );
-
-    if (!allArrived) {
-        return;
-    }
-
-    conversationsPlayedByDay[day] = true;
-    getDailyConversations(day).then(conversations => {
-        conversations.forEach(conversation => rememberConversation(day, conversation));
-        conversations.forEach((convo, index) => {
-            schedule(this, index * 5000, () => {
-                showStatusEmoji(this, convo.initiator, agentLocations[convo.initiator], 'chat');
-                syncAgentActionState(convo.initiator, agentLocations[convo.initiator], 'chat', { social_contact: true });
-                showAgentSpeech.call(this, convo.initiator, convo.question);
-                schedule(this, 2200, () => {
-                    showStatusEmoji(this, convo.responder, agentLocations[convo.responder], 'chat');
-                    syncAgentActionState(convo.responder, agentLocations[convo.responder], 'chat', { social_contact: true });
-                    showAgentSpeech.call(this, convo.responder, convo.answer);
-                });
+        rememberConversation(currentPlanDay, convo);
+        showStatusEmoji(scene, convo.initiator, agentLocations[convo.initiator], 'chat');
+        syncAgentActionState(convo.initiator, agentLocations[convo.initiator], 'chat', { social_contact: true });
+        showAgentSpeech.call(scene, convo.initiator, convo.question);
+        schedule(scene, 2200, () => {
+            showStatusEmoji(scene, convo.responder, agentLocations[convo.responder], 'chat');
+            syncAgentActionState(convo.responder, agentLocations[convo.responder], 'chat', { social_contact: true });
+            showAgentSpeech.call(scene, convo.responder, convo.answer, () => {
+                conversationsInProgress[agentName] = false;
+                conversationsInProgress[targetName] = false;
             });
         });
         updateUi();
@@ -3882,17 +3651,20 @@ function startUnifiedNight(scene) {
 
         currentPlanDay++;
         currentTimeMinutes = DAY_START_MINUTES;
+        agentCurrentActions = {};
+        conversationsInProgress = {};
         Object.values(agentState).forEach(state => {
             state.moved = false;
             state.currentDay = currentPlanDay;
-            state.taskStarted = false;
             state.arrived = false;
             state.returning = false;
             state.returnedHome = false;
             state.wokeUp = false;
             state.sleeping = false;
             state.goingToBed = false;
-            state.pendingHomeWander = false;
+            state.deciding = false;
+            state.nextDecisionRetryAt = null;
+            state.lastCompletedAction = null;
         });
         Object.keys(agentPhases).forEach(agentName => {
             agentPhases[agentName] = 'Ready';
@@ -3901,8 +3673,8 @@ function startUnifiedNight(scene) {
         nightInProgress = false;
         dailyPlanInProgress = false;
         dailyScheduleLoadedByDay[currentPlanDay] = false;
-        dailyScheduleLoadFailedByDay[currentPlanDay] = false;
-        dailyScheduleRetryAtByDay[currentPlanDay] = 0;
+        // 通知后端进入新一天：持久化进度并触发每位代理的反思
+        notifyNewDay(currentPlanDay);
         syncSimulationProgress({ force: true });
         updateUi();
     });
@@ -4031,14 +3803,6 @@ function update(time, delta) {
     }
 
     if (!dailyScheduleLoadedByDay[currentPlanDay]) {
-        return;
-    }
-
-    if (dailyScheduleLoadFailedByDay[currentPlanDay]) {
-        dailyPlanInProgress = false;
-        dailyScheduleLoadedByDay[currentPlanDay] = false;
-        dailyScheduleRetryAtByDay[currentPlanDay] = dailyScheduleRetryAtByDay[currentPlanDay] || (Date.now() + 15000);
-        updateUi();
         return;
     }
 

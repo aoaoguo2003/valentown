@@ -1,5 +1,6 @@
-"""Unit tests for the deterministic core: clock parsing, need triggers, and
-the agent-specific rolling memory bank. These run without any Claude calls."""
+"""Unit tests for the deterministic core: clock parsing, need triggers, the
+agent-specific rolling memory bank, and the need-driven decision fallback.
+These run without any LLM calls."""
 
 from agent_state import (
     DEFAULT_STATE,
@@ -8,6 +9,7 @@ from agent_state import (
     parse_clock_to_minutes,
     to_game_minute,
 )
+from agents.agent import ALLOWED_DESTINATIONS, AGENT_NAMES, RonParker
 from memory.memory_system import MemorySystem, ReflectionRecord
 
 
@@ -78,6 +80,111 @@ def test_memory_retention_prunes_old_life_days(tmp_path):
     contents = [record.content for record in memory.get_memories(agent_name="Ron Parker")]
     assert "Ron Parker: recent event" in contents
     assert "Ron Parker: ancient event" not in contents
+
+
+def _make_agent(tmp_path):
+    memory = MemorySystem(retention_days=15, memory_dir=tmp_path)
+    memory.initialize_agents(["Ron Parker"])
+    return RonParker(memory, "Ron_home.Living_room")
+
+
+def test_allowed_destinations_exclude_private_rooms():
+    # Privacy is enforced by construction: no bedroom/toilet anchors exist in
+    # the catalogue the LLM may choose from.
+    assert not any(dest.endswith(".Bed") for dest in ALLOWED_DESTINATIONS)
+    assert not any(dest.endswith(".Toilet") for dest in ALLOWED_DESTINATIONS)
+    assert "Park.Bench" in ALLOWED_DESTINATIONS
+    assert "Ron_home.Kitchen" in ALLOWED_DESTINATIONS
+
+
+def test_fallback_decision_honours_top_trigger(tmp_path):
+    agent = _make_agent(tmp_path)
+
+    hungry = agent.fallback_next_action([{"need": "hunger"}])
+    assert hungry["destination"] == "Ron_home.Kitchen"
+
+    tired = agent.fallback_next_action([{"need": "energy"}])
+    assert tired["destination"] == "Ron_home.Sofa"
+
+    lonely = agent.fallback_next_action([{"need": "social"}])
+    assert lonely["destination"] == "Park.Bench"
+
+    idle = agent.fallback_next_action([])
+    assert idle["destination"] in ALLOWED_DESTINATIONS
+
+
+def test_decide_next_action_falls_back_without_llm(tmp_path, monkeypatch):
+    agent = _make_agent(tmp_path)
+    # Simulate LLM unavailability: the decision loop must still produce a
+    # valid, executable action so the simulation never stalls.
+    monkeypatch.setattr(agent.llm, "call_tool", lambda *args, **kwargs: None)
+
+    decision = agent.decide_next_action(
+        internal_state={"values": {"hunger": 90, "energy": 80, "social": 70}},
+        triggers=[{"need": "hunger", "reason": "hungry", "intent": "seek_food"}],
+        day_number=1,
+        time_text="9:00 AM",
+        current_location="Ron_home.Living_room"
+    )
+    assert decision["source"] == "fallback"
+    assert decision["destination"] == "Ron_home.Kitchen"
+    assert decision["talk_to"] == "nobody"
+
+
+def test_decision_validation_rejects_bad_tool_output(tmp_path, monkeypatch):
+    agent = _make_agent(tmp_path)
+    # An invalid destination from the model must be rejected and replaced by
+    # the deterministic fallback rather than executed.
+    monkeypatch.setattr(
+        agent.llm,
+        "call_tool",
+        lambda *args, **kwargs: {
+            "action": "sneak into a bedroom",
+            "destination": "Ella_home.Bed",
+            "duration_minutes": 60,
+            "talk_to": "nobody"
+        }
+    )
+
+    decision = agent.decide_next_action(
+        internal_state={"values": {}},
+        triggers=[],
+        day_number=1,
+        time_text="2:00 PM",
+        current_location="Park.Bench"
+    )
+    assert decision["source"] == "fallback"
+    assert decision["destination"] in ALLOWED_DESTINATIONS
+
+
+def test_decision_validation_normalizes_llm_output(tmp_path, monkeypatch):
+    agent = _make_agent(tmp_path)
+    monkeypatch.setattr(
+        agent.llm,
+        "call_tool",
+        lambda *args, **kwargs: {
+            "action": "buy groceries for dinner",
+            "destination": "Supermarket.Fruit_shelf",
+            "duration_minutes": 9999,           # out of range -> clamped
+            "talk_to": "Ron Parker"             # self-talk -> nobody
+        }
+    )
+
+    decision = agent.decide_next_action(
+        internal_state={"values": {}},
+        triggers=[],
+        day_number=1,
+        time_text="4:00 PM",
+        current_location="Ron_home.Living_room"
+    )
+    assert decision["source"] == "llm"
+    assert decision["destination"] == "Supermarket.Fruit_shelf"
+    assert decision["duration_minutes"] == 180
+    assert decision["talk_to"] == "nobody"
+    assert set(AGENT_NAMES) == {
+        "Ron Parker", "Ella Parker", "Emma Harris", "Gavin Harris",
+        "Adam Harris", "Mia Thompson", "Arthur Morgan"
+    }
 
 
 def test_reflection_record_serializes_with_level(tmp_path):

@@ -11,15 +11,14 @@ from agent_state import (
     load_all_agent_states,
     update_agent_state
 )
-from config import USE_CACHED_DAILY_PLANS
 import json
 import os
 import threading
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
-LIFE_PLANS_FILE = BASE_DIR / "life_plans.json"
 PROGRESS_FILE = BASE_DIR / "simulation_progress.json"
+CONVERSATIONS_FILE = BASE_DIR / "conversations.json"
 
 try:
     from flask_cors import CORS
@@ -42,23 +41,22 @@ memory_system = MemorySystem(retention_days=15)
 
 # 创建所有代理，并为它们指定不同的初始位置
 agents = [
-    RonParker(memory_system, "Valentown Supermarket"),
-    EllaParker(memory_system, "Valentown Library"),
-    EmmaHarris(memory_system, "Valentown Cafe"),
-    GavinHarris(memory_system, "Valentown Park"),
-    AdamHarris(memory_system, "Valentown Office"),
-    MiaThompson(memory_system, "Valentown School"),
-    ArthurMorgan(memory_system, "Valentown Town Hall")
+    RonParker(memory_system, "Ron_home.Living_room"),
+    EllaParker(memory_system, "Ella_home.Living_room"),
+    EmmaHarris(memory_system, "Emma_home.Living_room"),
+    GavinHarris(memory_system, "Gavin_home.Living_room"),
+    AdamHarris(memory_system, "Adam_home.Living_room"),
+    MiaThompson(memory_system, "Mia_home.Living_room"),
+    ArthurMorgan(memory_system, "Arthur_home.Living_room")
 ]
+agents_by_name = {agent.name: agent for agent in agents}
 agent_names = [agent.name for agent in agents]
 ensure_agent_state_files(agent_names)
 memory_system.initialize_agents(agent_names)
 
-# 创建一个字典来存储每天每个代理的计划
-daily_plans = {}
-# Serialize lived-day generation so concurrent requests cannot double-generate
-# a day or race on the shared daily_plans dict and life_plans.json file.
-plan_generation_lock = threading.Lock()
+# Serialize state that multiple requests may touch concurrently.
+state_lock = threading.Lock()
+
 simulation_progress = {
     "current_life_day": 1,
     "current_time_minutes": 6 * 60,
@@ -67,6 +65,10 @@ simulation_progress = {
     "agent_positions": {},
     "agent_pose_states": {}
 }
+
+# 按生活日累积的对话记录
+conversations_by_day = {}
+
 
 def load_simulation_progress():
     if not PROGRESS_FILE.exists():
@@ -84,6 +86,7 @@ def load_simulation_progress():
     progress["agent_pose_states"] = progress.get("agent_pose_states") if isinstance(progress.get("agent_pose_states"), dict) else {}
     return progress
 
+
 def save_simulation_progress(progress=None):
     data = dict(simulation_progress)
     if progress:
@@ -99,125 +102,134 @@ def save_simulation_progress(progress=None):
     memory_system.set_life_day(data["current_life_day"], agent_names)
     return data
 
-def load_life_plans(filename=LIFE_PLANS_FILE):
-    global daily_plans
 
-    path = Path(filename)
-    if not path.exists():
-        return False
+def load_conversations():
+    global conversations_by_day
+    if not CONVERSATIONS_FILE.exists():
+        return
 
-    with path.open("r", encoding="utf-8") as f:
-        raw_plans = json.load(f)
+    try:
+        with CONVERSATIONS_FILE.open("r", encoding="utf-8") as file:
+            raw = json.load(file)
+        conversations_by_day = {int(day): convos for day, convos in raw.items()}
+    except (json.JSONDecodeError, ValueError):
+        conversations_by_day = {}
 
-    daily_plans = {int(day): plan for day, plan in raw_plans.items()}
-    print(f"Loaded {len(daily_plans)} lived-day plans from {filename}.")
-    return True
+
+def save_conversations():
+    with CONVERSATIONS_FILE.open("w", encoding="utf-8") as file:
+        json.dump(conversations_by_day, file, ensure_ascii=False, indent=4)
+
 
 simulation_progress.update(load_simulation_progress())
 memory_system.set_life_day(simulation_progress["current_life_day"], agent_names)
-load_life_plans()
-
-def ensure_life_day_plan(life_day):
-    life_day = max(1, int(life_day or 1))
-    with plan_generation_lock:
-        _ensure_life_day_plan_locked(life_day)
+load_conversations()
 
 
-def _ensure_life_day_plan_locked(life_day):
-    load_life_plans()
-    if life_day in daily_plans and all(agent.name in daily_plans[life_day] for agent in agents):
-        memory_system.set_life_day(life_day, agent_names)
-        save_simulation_progress({"current_life_day": life_day})
-        return
-
-    if USE_CACHED_DAILY_PLANS:
-        raise RuntimeError(
-            f"Lived day {life_day} is not cached and USE_CACHED_DAILY_PLANS is enabled, "
-            "so Claude generation is disabled."
-        )
-
-    memory_system.set_life_day(life_day, agent_names)
-    print(f"\n========== Generating lived day {life_day} ==========")
-
-    if life_day > 1:
-        for agent in agents:
-            reflection_obj = Reflection(memory_system, agent.name)
-            reflection_obj.generate_reflection(life_day=life_day)
-
-    day_plan = {}
-    location_agents = {}
-
-    for agent in agents:
-        plan, destination = agent.generate_daily_plan(day_number=life_day)
-        if not plan or not destination:
-            raise RuntimeError(f"Failed to generate daily plan for {agent.name} using Claude.")
-
-        day_plan[agent.name] = [plan, destination]
-        agent.current_location = destination
-        big_location = destination.split('.')[0]
-        location_agents.setdefault(big_location, []).append(agent)
-
-    conversations = []
-    for big_loc, loc_agents in location_agents.items():
-        if len(loc_agents) < 2:
-            continue
-
-        processed_pairs = set()
-        sorted_agents = sorted(loc_agents, key=lambda x: -x.age)
-        for speaker in sorted_agents:
-            available_agents = [
-                agent for agent in sorted_agents
-                if agent != speaker
-                and (speaker.name, agent.name) not in processed_pairs
-                and (agent.name, speaker.name) not in processed_pairs
-            ]
-            if not available_agents:
-                continue
-
-            conversation = speaker.start_communicate(
-                other_agents=available_agents,
-                current_location=big_loc,
-                day_number=life_day
-            )
-            if conversation:
-                conversations.append(conversation)
-                processed_pairs.add((conversation["initiator"], conversation["responder"]))
-
-    day_plan["conversations"] = conversations
-    daily_plans[life_day] = day_plan
-
-    with LIFE_PLANS_FILE.open("w", encoding="utf-8") as file:
-        json.dump(daily_plans, file, ensure_ascii=False, indent=4)
-
-    memory_system.save_to_file(BASE_DIR / "memory_data.json")
-    save_simulation_progress({"current_life_day": life_day})
-
-
-# 创建一个API端点返回每日计划
-@app.route('/get_daily_plan', methods=['GET'])
-def get_daily_plan():
-    agent_name = request.args.get('agent_name')
-    try:
-        life_day = int(request.args.get('life_day') or request.args.get('day') or simulation_progress.get('current_life_day', 1))
-    except ValueError:
-        return jsonify({"error": "life_day must be a number"}), 400
-
+@app.route('/decide_next_action', methods=['POST'])
+def decide_next_action():
+    """Need-driven planning: called by the client every time an agent finishes
+    an action and must choose what to do next."""
+    data = request.get_json(silent=True) or {}
+    agent_name = data.get("agent_name")
     if not agent_name:
         return jsonify({"error": "agent_name is required"}), 400
+    if agent_name not in agents_by_name:
+        return jsonify({"error": "Unknown agent"}), 404
 
     try:
-        ensure_life_day_plan(life_day)
-    except RuntimeError as error:
-        return jsonify({"error": "Claude generation failed", "details": str(error)}), 503
+        life_day = max(1, int(data.get("day") or simulation_progress.get("current_life_day", 1)))
+    except (TypeError, ValueError):
+        return jsonify({"error": "day must be a number"}), 400
 
-    if agent_name not in daily_plans.get(life_day, {}):
-        return jsonify({"error": "Agent not found for the requested lived day"}), 404
+    agent = agents_by_name[agent_name]
+    state = load_agent_state(agent_name)
+    triggers = evaluate_agent_triggers(state)
+
+    with state_lock:
+        memory_system.set_life_day(life_day, [agent_name])
+        decision = agent.decide_next_action(
+            internal_state=state,
+            triggers=triggers,
+            day_number=life_day,
+            time_text=data.get("time") or "morning",
+            current_location=data.get("current_location") or agent.current_location,
+            last_action=data.get("last_action")
+        )
+        agent.current_location = decision["destination"]
 
     return jsonify({
         "agent_name": agent_name,
         "life_day": life_day,
-        "daily_plan": daily_plans[life_day][agent_name]
+        "decision": decision,
+        "triggers": triggers
     })
+
+
+@app.route('/generate_conversation', methods=['POST'])
+def generate_conversation():
+    """Generate one short exchange between two co-located agents and store it
+    in the per-day conversation log."""
+    data = request.get_json(silent=True) or {}
+    initiator_name = data.get("initiator")
+    responder_name = data.get("responder")
+    if not initiator_name or not responder_name:
+        return jsonify({"error": "initiator and responder are required"}), 400
+    if initiator_name not in agents_by_name or responder_name not in agents_by_name:
+        return jsonify({"error": "Unknown agent"}), 404
+    if initiator_name == responder_name:
+        return jsonify({"error": "initiator and responder must differ"}), 400
+
+    try:
+        life_day = max(1, int(data.get("day") or simulation_progress.get("current_life_day", 1)))
+    except (TypeError, ValueError):
+        return jsonify({"error": "day must be a number"}), 400
+
+    location = data.get("location") or "Valentown"
+    initiator = agents_by_name[initiator_name]
+    responder = agents_by_name[responder_name]
+
+    with state_lock:
+        conversation = initiator.talk_with(responder, life_day, location)
+        if conversation:
+            conversations_by_day.setdefault(life_day, []).append(conversation)
+            save_conversations()
+
+    if not conversation:
+        return jsonify({"error": "LLM conversation generation failed"}), 503
+
+    return jsonify({
+        "life_day": life_day,
+        "conversation": conversation
+    })
+
+
+@app.route('/start_new_day', methods=['POST'])
+def start_new_day():
+    """Roll the simulation over to a new lived day: persist progress and let
+    every agent reflect on the previous day's memories."""
+    data = request.get_json(silent=True) or {}
+    try:
+        life_day = max(1, int(data.get("life_day") or simulation_progress.get("current_life_day", 1)))
+    except (TypeError, ValueError):
+        return jsonify({"error": "life_day must be a number"}), 400
+
+    reflections = {}
+    with state_lock:
+        memory_system.set_life_day(life_day, agent_names)
+        save_simulation_progress({"current_life_day": life_day})
+
+        if life_day > 1:
+            for agent in agents:
+                reflection_obj = Reflection(memory_system, agent.name)
+                _, answer = reflection_obj.generate_reflection(life_day=life_day)
+                reflections[agent.name] = bool(answer)
+
+    return jsonify({
+        "life_day": life_day,
+        "reflections_generated": reflections
+    })
+
 
 @app.route('/get_conversations', methods=['GET'])
 def get_conversations():
@@ -226,12 +238,7 @@ def get_conversations():
     except ValueError:
         return jsonify({"error": "life_day must be a number"}), 400
 
-    try:
-        ensure_life_day_plan(life_day)
-    except RuntimeError as error:
-        return jsonify({"error": "Claude generation failed", "details": str(error)}), 503
-
-    convos = daily_plans.get(life_day, {}).get("conversations", [])
+    convos = conversations_by_day.get(life_day, [])
     location = request.args.get('location')
     if location:
         convos = [conversation for conversation in convos if conversation["location"] == location]
@@ -241,6 +248,7 @@ def get_conversations():
         "count": len(convos),
         "conversations": convos
     })
+
 
 @app.route('/get_config', methods=['GET'])
 def get_config():
@@ -255,10 +263,12 @@ def get_config():
         "retention_days": memory_system.retention_days
     })
 
+
 @app.route('/get_simulation_progress', methods=['GET'])
 def get_simulation_progress():
     # Read-only: a GET must not write to disk or mutate shared state.
     return jsonify(dict(simulation_progress))
+
 
 @app.route('/update_simulation_progress', methods=['POST'])
 def update_simulation_progress():
@@ -276,7 +286,9 @@ def update_simulation_progress():
         updates["agent_positions"] = data["agent_positions"]
     if "agent_pose_states" in data and isinstance(data["agent_pose_states"], dict):
         updates["agent_pose_states"] = data["agent_pose_states"]
-    return jsonify(save_simulation_progress(updates))
+    with state_lock:
+        return jsonify(save_simulation_progress(updates))
+
 
 @app.route('/get_agent_internal_states', methods=['GET'])
 def get_agent_internal_states():
@@ -285,6 +297,7 @@ def get_agent_internal_states():
         "count": len(states),
         "states": states
     })
+
 
 @app.route('/get_agent_internal_state', methods=['GET'])
 def get_agent_internal_state():
@@ -300,6 +313,7 @@ def get_agent_internal_state():
         "state": state,
         "triggers": evaluate_agent_triggers(state)
     })
+
 
 @app.route('/get_agent_memories', methods=['GET'])
 def get_agent_memories():
@@ -318,6 +332,7 @@ def get_agent_memories():
         "memories": bank["memories"]
     })
 
+
 @app.route('/get_all_agent_memories', methods=['GET'])
 def get_all_agent_memories():
     banks = {agent_name: memory_system.get_agent_memory_bank(agent_name) for agent_name in agent_names}
@@ -326,6 +341,7 @@ def get_all_agent_memories():
         "current_life_day": memory_system.current_life_day,
         "agents": banks
     })
+
 
 @app.route('/update_agent_internal_state', methods=['POST'])
 def update_agent_internal_state():
@@ -351,7 +367,7 @@ def update_agent_internal_state():
         "triggers": evaluate_agent_triggers(state)
     })
 
-# 为根路径添加路由
+
 @app.route('/advance_agent_internal_state', methods=['POST'])
 def advance_agent_internal_state():
     data = request.get_json(silent=True) or {}
@@ -375,6 +391,7 @@ def advance_agent_internal_state():
         "triggers": evaluate_agent_triggers(state)
     })
 
+
 @app.route('/complete_agent_action', methods=['POST'])
 def complete_agent_action_route():
     data = request.get_json(silent=True) or {}
@@ -384,16 +401,31 @@ def complete_agent_action_route():
     if agent_name not in agent_names:
         return jsonify({"error": "Unknown agent"}), 404
 
+    action_text = str(data.get("action", "")).strip()
+    location_name = data.get("location", "")
+
     state, effects = complete_agent_action(
         agent_name,
-        location_name=data.get("location", ""),
-        action_text=data.get("action", ""),
+        location_name=location_name,
+        action_text=action_text,
         elapsed_game_minutes=data.get("elapsed_game_minutes", 0),
         day=data.get("day"),
         time=data.get("time"),
         sleeping=bool(data.get("sleeping", False)),
         social_contact=bool(data.get("social_contact", False))
     )
+
+    # Feed completed actions back into the rolling memory bank so the next
+    # decision can build on what actually happened (routine poses excluded).
+    if action_text and action_text not in {"wake up", "sleep", "rest"}:
+        agent = agents_by_name[agent_name]
+        with state_lock:
+            try:
+                life_day = max(1, int(data.get("day") or simulation_progress.get("current_life_day", 1)))
+            except (TypeError, ValueError):
+                life_day = simulation_progress.get("current_life_day", 1)
+            agent.record_completed_action(action_text, location_name, life_day=life_day)
+
     return jsonify({
         "agent_name": agent_name,
         "state": state,
@@ -401,14 +433,17 @@ def complete_agent_action_route():
         "triggers": evaluate_agent_triggers(state)
     })
 
+
 @app.route('/')
 def home():
     return "Welcome to Valentown!"
+
 
 # 处理 favicon.ico 请求
 @app.route('/favicon.ico')
 def favicon():
     return '', 204  # 返回空响应，表示成功处理了请求
+
 
 # 启动 Flask
 if __name__ == "__main__":

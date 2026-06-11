@@ -1,8 +1,16 @@
+// Smoke test for the need-driven decision loop. Loads the real frontend code
+// in a sandbox (no network, no rendering) and validates that:
+//   1. every agent's deterministic wake/bed schedule fits the day window;
+//   2. every destination the backend may pick is routable from every agent's
+//      bed, and routable back home (mirror of backend ALLOWED_DESTINATIONS);
+//   3. co-located agents resolve to the same area name, so decision-driven
+//      conversations can trigger.
+// Run from the repository root: node scripts/smoke_24h.js
+
 const fs = require('fs');
 const vm = require('vm');
 
 const gameSource = fs.readFileSync('frontend/js/game.js', 'utf8');
-const plans = JSON.parse(fs.readFileSync('backend/life_plans.json', 'utf8'))['1'];
 
 const context = {
   console,
@@ -42,8 +50,8 @@ vm.runInContext(`${gameSource}
 globalThis.__smoke = {
   DAY_START_MINUTES,
   DAY_END_MINUTES,
+  computeDefaultSchedule,
   sleepLocationByAgent,
-  parsePlanSchedule,
   getAreaName,
   locationToNode,
   navNodes,
@@ -54,7 +62,28 @@ globalThis.__smoke = {
 
 const api = context.__smoke;
 const FULL_DAY_MINUTES = 24 * 60;
-const TIMELINE_STEP_MINUTES = 15;
+
+// Mirror of the backend destination catalogue (agents/agent.py). Keep in sync.
+const HOME_AREAS = [
+  'Ron_home', 'Ella_home', 'Arthur_home', 'Mia_home', 'Emma_home', 'Gavin_home', 'Adam_home'
+];
+const HOME_ROOM_LOCATIONS = [
+  'Living_room', 'Kitchen', 'Dining_table', 'Dinning_room', 'Study_corner', 'Desk',
+  'Bookshelf', 'Reading_chair', 'Sofa', 'Chair', 'Porch', 'Window'
+];
+const PUBLIC_LOCATIONS = [
+  'Park.Chair', 'Park.River', 'Park.Tree', 'Park.Bench', 'Park.Flower_bed', 'Park.Playground', 'Park.Bridge',
+  'Café_bar.Boss', 'Café_bar.Customer_cafe', 'Café_bar.Customer_bar', 'Café_bar.Window_seat',
+  'Café_bar.Corner_table', 'Café_bar.Counter', 'Café_bar.Patio',
+  'Supermarket.Boss', 'Supermarket.Customer_drink', 'Supermarket.Customer_eat', 'Supermarket.Checkout',
+  'Supermarket.Fruit_shelf', 'Supermarket.Storage', 'Supermarket.Entrance_aisle',
+  'Pharmacy.Boss', 'Pharmacy.Customer_left', 'Pharmacy.Customer_right', 'Pharmacy.Prescription_counter',
+  'Pharmacy.Medicine_shelf', 'Pharmacy.Waiting_chair', 'Pharmacy.Consult_room'
+];
+const ALLOWED_DESTINATIONS = [
+  ...HOME_AREAS.flatMap(home => HOME_ROOM_LOCATIONS.map(room => `${home}.${room}`)),
+  ...PUBLIC_LOCATIONS
+];
 
 function assert(condition, message) {
   if (!condition) {
@@ -85,73 +114,62 @@ function pathExists(fromLocation, toLocation) {
   return api.findNavPath(fromNode, toNode).length > 0;
 }
 
-const agentNames = Object.keys(plans).filter(name => name !== 'conversations');
+const agentNames = Object.keys(api.sleepLocationByAgent);
 const report = [];
 
 assert(api.DAY_START_MINUTES >= 0, 'simulation day start must be inside a calendar day');
 assert(api.DAY_END_MINUTES <= FULL_DAY_MINUTES, 'simulation day end must be inside a calendar day');
 assert(api.DAY_START_MINUTES < api.DAY_END_MINUTES, 'simulation day start must be before day end');
 
+// 1. Deterministic wake/bed schedules.
 for (const [index, agentName] of agentNames.entries()) {
-  const [planText, destination] = plans[agentName];
-  const schedule = api.parsePlanSchedule(planText, index);
-  const home = api.sleepLocationByAgent[agentName];
-
-  assert(home, `${agentName} has no home sleep location`);
-  assert(api.locationToNode[destination], `${agentName} destination is not routable: ${destination}`);
-  assert(pathExists(home, destination), `${agentName} cannot route from bed to destination ${destination}`);
-  assert(pathExists(destination, home), `${agentName} cannot route from destination back to bed`);
+  const schedule = api.computeDefaultSchedule(index);
   assert(schedule.wakeTime >= api.DAY_START_MINUTES, `${agentName} wakes before simulation start`);
-  assert(schedule.activityTime >= schedule.wakeTime, `${agentName} activity starts before waking`);
-  assert(schedule.returnTime >= schedule.activityTime, `${agentName} returns before activity`);
-  assert(schedule.bedTime >= schedule.returnTime, `${agentName} sleeps before returning`);
+  assert(schedule.wakeTime < schedule.bedTime, `${agentName} wake time is not before bedtime`);
   assert(schedule.bedTime <= api.DAY_END_MINUTES, `${agentName} bedtime exceeds day end`);
 
   report.push({
     agentName,
-    destination,
     wakeTime: schedule.wakeTime,
-    activityTime: schedule.activityTime,
-    returnTime: schedule.returnTime,
     bedTime: schedule.bedTime
   });
 }
 
-for (const conversation of plans.conversations || []) {
-  const initiatorDestination = plans[conversation.initiator]?.[1] || '';
-  const responderDestination = plans[conversation.responder]?.[1] || '';
-  assert(
-    api.getAreaName(initiatorDestination) === conversation.location,
-    `${conversation.initiator} is not at conversation location ${conversation.location}`
-  );
-  assert(
-    api.getAreaName(responderDestination) === conversation.location,
-    `${conversation.responder} is not at conversation location ${conversation.location}`
-  );
-}
+// 2. Every candidate decision destination is routable from each agent's bed
+//    and back, so no decision the backend emits can strand an agent.
+let routesChecked = 0;
+for (const agentName of agentNames) {
+  const home = api.sleepLocationByAgent[agentName];
+  assert(home, `${agentName} has no home sleep location`);
 
-const timeline = [];
-for (let minute = 0; minute <= FULL_DAY_MINUTES; minute += TIMELINE_STEP_MINUTES) {
-  for (const item of report) {
-    if (minute < api.DAY_START_MINUTES) {
-      continue;
-    }
-    if (minute > api.DAY_END_MINUTES) {
-      continue;
-    }
-    if (minute === item.wakeTime) timeline.push(`${item.agentName}: wake`);
-    if (minute === item.activityTime) timeline.push(`${item.agentName}: leave`);
-    if (minute === item.returnTime) timeline.push(`${item.agentName}: return`);
-    if (minute === item.bedTime) timeline.push(`${item.agentName}: sleep`);
+  for (const destination of ALLOWED_DESTINATIONS) {
+    assert(api.locationToNode[destination], `destination missing from nav graph: ${destination}`);
+    assert(pathExists(home, destination), `${agentName} cannot route from bed to ${destination}`);
+    assert(pathExists(destination, home), `${agentName} cannot route from ${destination} back to bed`);
+    routesChecked += 2;
   }
 }
 
+// 3. Conversation co-location: two agents sent to the same area resolve to the
+//    same area name (the trigger condition used by the frontend).
+assert(
+  api.getAreaName('Park.Bench') === api.getAreaName('Park.Tree'),
+  'two park anchors must resolve to the same area for conversations'
+);
+assert(
+  api.getAreaName('Café_bar.Counter') === api.getAreaName('Café_bar.Patio'),
+  'two cafe anchors must resolve to the same area for conversations'
+);
+assert(
+  api.getAreaName('Park.Bench') !== api.getAreaName('Café_bar.Counter'),
+  'different areas must not be considered co-located'
+);
+
 console.log(JSON.stringify({
   checkedAgents: report.length,
-  checkedConversations: (plans.conversations || []).length,
+  candidateDestinations: ALLOWED_DESTINATIONS.length,
+  routesChecked,
   simulatedMinutes: FULL_DAY_MINUTES,
   activeWindowMinutes: api.DAY_END_MINUTES - api.DAY_START_MINUTES,
-  sleepWindowMinutes: api.DAY_START_MINUTES + (FULL_DAY_MINUTES - api.DAY_END_MINUTES),
-  report,
-  timelineEvents: timeline.length
+  report
 }, null, 2));
