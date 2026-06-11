@@ -40,8 +40,6 @@ let currentTimeMinutes = 6 * 60;
 let lastProgressSyncAt = 0;
 let progressLoaded = false;
 let activeSpeechBubbles = {};
-let activeStatusBubbles = {};
-let statusBubbleTweens = {};
 let sleepBubbles = {};
 let sleepBubbleTweens = {};
 let anchorDebugObjects = [];
@@ -1314,7 +1312,6 @@ function enterUserControl(agentName) {
     clearCurrentAction(agentName);
 
     cancelAgentMotion(agentName);
-    hideStatusBubble(agentName);
     hideSleepBubble(agentName);
     hideAgentSpeech(agentName);
     setAgentPose(agentName, 'stand');
@@ -1735,7 +1732,6 @@ function moveUserControlledAgent(direction, delta) {
         return;
     }
 
-    hideStatusBubble(agentName);
     hideSleepBubble(agentName);
     if (!agent.manualMoving) {
         startWalkingAnimation(agentName);
@@ -2087,7 +2083,6 @@ function announceMovementThen(scene, agentName, targetLocation, actionText, onRe
 
     agent.isPreparingToMove = true;
     agentPhases[agentName] = 'Preparing to move';
-    hideStatusBubble(agentName);
     updateUi();
 
     showAgentSpeech.call(scene, agentName, buildMovementSpeech(agentName, targetLocation, actionText), () => {
@@ -2653,108 +2648,6 @@ function hideSleepBubble(agentName) {
     delete sleepBubbles[agentName];
 }
 
-function getStatusEmoji(locationName, actionText = '') {
-    const source = `${locationName || ''} ${actionText || ''}`.toLowerCase();
-    const rules = [
-        { tokens: ['chat', 'talk', 'conversation', 'greet'], emoji: '💬' },
-        { tokens: ['coffee', 'café', 'cafe', 'bar'], emoji: '☕' },
-        { tokens: ['tv', 'television', 'watch', 'living_room', 'sofa', '客厅'], emoji: '📺' },
-        { tokens: ['kitchen', 'cook', 'cooking', 'meal', '厨房'], emoji: '🍳' },
-        { tokens: ['dining', 'dinning', 'eat', 'lunch', 'dinner', 'breakfast', '餐'], emoji: '🍽️' },
-        { tokens: ['bookshelf', 'read', 'reading', 'book', '书'], emoji: '📖' },
-        { tokens: ['desk', 'study', 'teach', 'teacher', 'homework', 'work', '学习'], emoji: '✏️' },
-        { tokens: ['pharmacy', 'medicine', 'prescription', 'consult', '药'], emoji: '💊' },
-        { tokens: ['supermarket', 'shop', 'checkout', 'fruit', 'shelf', 'restock', 'storage', '超市'], emoji: '🛒' },
-        { tokens: ['park', 'bench', 'tree', 'flower', 'playground', 'river', 'bridge', 'walk', '公园'], emoji: '🌳' },
-        { tokens: ['toilet', 'bathroom', '厕所'], emoji: '🚿' },
-        { tokens: ['bed', 'rest', 'sleep', '床'], emoji: '🛏️' },
-        { tokens: ['window'], emoji: '🪟' },
-        { tokens: ['chair', 'seat', 'sit'], emoji: '🪑' },
-        { tokens: ['home', '回家', '在家'], emoji: '🏠' }
-    ];
-    const matches = [];
-
-    rules.forEach(rule => {
-        if (rule.tokens.some(token => source.includes(token)) && !matches.includes(rule.emoji)) {
-            matches.push(rule.emoji);
-        }
-    });
-
-    return (matches.length ? matches : ['🙂']).slice(0, 2).join('');
-}
-
-function showStatusEmoji(scene, agentName, locationName, actionText = '') {
-    hideStatusBubble(agentName);
-
-    const agent = agents[agentName];
-    if (!agent || agentState[agentName]?.sleeping) {
-        return;
-    }
-
-    const emoji = getStatusEmoji(locationName, actionText);
-    const position = getFloatingBubblePosition(
-        scene,
-        agent,
-        { left: -28, right: 30, top: -18, bottom: 32 },
-        84,
-        38,
-        5
-    );
-    const x = position.x;
-    const y = position.y;
-    const bubbleBg = scene.add.graphics();
-    bubbleBg.fillStyle(0xffffff, 0.92);
-    bubbleBg.lineStyle(2, 0x9fb2c6, 1);
-    bubbleBg.fillRoundedRect(-28, -18, 56, 36, 14);
-    bubbleBg.strokeRoundedRect(-28, -18, 56, 36, 14);
-    bubbleBg.fillStyle(0xffffff, 0.92);
-    bubbleBg.fillCircle(17, 21, 5);
-    bubbleBg.fillCircle(27, 29, 3);
-
-    const bubbleText = scene.add.text(0, -1, emoji, {
-        font: '22px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", Arial',
-        align: 'center'
-    }).setOrigin(0.5);
-
-    const container = scene.add.container(x, y, [bubbleBg, bubbleText]).setDepth(9);
-    container.alpha = 0;
-    activeStatusBubbles[agentName] = container;
-    statusBubbleTweens[agentName] = [
-        scene.tweens.add({
-            targets: container,
-            y: y - 5,
-            duration: scaledDuration(1100),
-            yoyo: true,
-            repeat: -1,
-            ease: 'Sine.easeInOut'
-        }),
-        scene.tweens.add({
-            targets: bubbleText,
-            scale: 1.12,
-            duration: scaledDuration(900),
-            yoyo: true,
-            repeat: -1,
-            ease: 'Sine.easeInOut'
-        }),
-        scene.tweens.add({
-            targets: container,
-            alpha: 1,
-            duration: scaledDuration(220)
-        })
-    ];
-}
-
-function hideStatusBubble(agentName) {
-    if (!activeStatusBubbles[agentName]) {
-        return;
-    }
-
-    (statusBubbleTweens[agentName] || []).forEach(tween => tween.stop());
-    delete statusBubbleTweens[agentName];
-    activeStatusBubbles[agentName].destroy();
-    delete activeStatusBubbles[agentName];
-}
-
 function getAgentTextureKey(agentName, pose = 'stand') {
     const baseKey = agentTextureKeyByName[agentName];
     if (!baseKey || pose === 'stand') {
@@ -2928,7 +2821,6 @@ function moveAgentToInitialPosition(agentName, targetLocation) {
             agentLocations[agentName] = homeLocation;
             agentPhases[agentName] = 'At home';
             applyAgentPoseForLocation(agentName, homeLocation);
-            showStatusEmoji(this, agentName, homeLocation, 'rest');
             syncAgentActionState(agentName, homeLocation, 'rest');
             updateUi();
             syncSimulationProgress({ force: true });
@@ -2984,7 +2876,6 @@ function moveAgentToSleepPosition(scene, agentName) {
             state.moved = true;
             agentLocations[agentName] = sleepLocation;
             agentPhases[agentName] = 'Sleeping';
-            hideStatusBubble(agentName);
             setAgentPose(agentName, 'lie');
             positionAgentForSleep(scene, agentName);
             showSleepBubble(scene, agentName);
@@ -3011,11 +2902,9 @@ function resetAgentToSleepPosition(scene, agentName) {
     agent.isMoving = false;
     agent.isPreparingToMove = false;
     agentLocations[agentName] = sleepLocation;
-    hideStatusBubble(agentName);
     setAgentPose(agentName, 'lie');
     positionAgentForSleep(scene, agentName);
 }
-
 
 // 路径规划函数
 function getDefaultHomeActivityLocation(agentName) {
@@ -3045,7 +2934,6 @@ function placeAgentAtLocation(scene, agentName, locationName, pose = null) {
     agentLocations[agentName] = locationName;
 
     if (pose === 'lie' || locationName === formatSleepLocation(agentName)) {
-        hideStatusBubble(agentName);
         setAgentPose(agentName, 'lie');
         positionAgentForSleep(scene, agentName);
         showSleepBubble(scene, agentName);
@@ -3131,7 +3019,6 @@ function beginActionAtDestination(scene, agentName, targetLocation) {
 
     agentPhases[agentName] = `Doing: ${actionText}`;
     applyAgentPoseForLocation(agentName, targetLocation);
-    showStatusEmoji(scene, agentName, targetLocation, actionText);
     syncAgentActionState(agentName, targetLocation, actionText);
     updateUi();
     syncSimulationProgress({ force: true });
@@ -3196,7 +3083,6 @@ function completeCurrentAction(scene, agentName) {
     state.lastCompletedAction = `${actionText} (at ${formatLocation(currentAction.destination)})`;
     state.arrived = false;
     clearCurrentAction(agentName);
-    hideStatusBubble(agentName);
     agentPhases[agentName] = 'Finished activity';
     updateUi();
 }
@@ -3251,7 +3137,6 @@ function hydrateTimedDayState(scene, useRestoredPositions = false) {
         if (!useRestoredPositions) {
             placeAgentAtLocation(scene, agentName, inferredLocation, inferredPose);
         } else if (state.sleeping) {
-            hideStatusBubble(agentName);
             setAgentPose(agentName, 'lie');
             positionAgentForSleep(scene, agentName);
             showSleepBubble(scene, agentName);
@@ -3283,7 +3168,6 @@ function prepareTimedDay(scene) {
     const shouldResumeDay = restoredTimeMinutes > DAY_START_MINUTES;
 
     agentNames.forEach((agentName, index) => {
-        hideStatusBubble(agentName);
         if (!shouldResumeDay) {
             resetAgentToSleepPosition(scene, agentName);
         }
@@ -3361,7 +3245,6 @@ function runTimedDayActions(scene) {
             state.sleeping = false;
             syncAgentActionState(agentName, agentLocations[agentName], 'wake up', { sleeping: true });
             hideSleepBubble(agentName);
-            hideStatusBubble(agentName);
             setAgentPose(agentName, 'stand');
             agentPhases[agentName] = 'Awake';
             updateUi();
@@ -3463,11 +3346,9 @@ function maybeStartDecisionConversation(scene, agentName) {
         }
 
         rememberConversation(currentPlanDay, convo);
-        showStatusEmoji(scene, convo.initiator, agentLocations[convo.initiator], 'chat');
         syncAgentActionState(convo.initiator, agentLocations[convo.initiator], 'chat', { social_contact: true });
         showAgentSpeech.call(scene, convo.initiator, convo.question);
         schedule(scene, 2200, () => {
-            showStatusEmoji(scene, convo.responder, agentLocations[convo.responder], 'chat');
             syncAgentActionState(convo.responder, agentLocations[convo.responder], 'chat', { social_contact: true });
             showAgentSpeech.call(scene, convo.responder, convo.answer, () => {
                 conversationsInProgress[agentName] = false;
@@ -3641,7 +3522,6 @@ function startUnifiedNight(scene) {
     nightInProgress = true;
     dailyPlanInProgress = true;
     Object.keys(agentPhases).forEach(agentName => {
-        hideStatusBubble(agentName);
         agentPhases[agentName] = 'Sleeping';
         agentLocations[agentName] = formatSleepLocation(agentName);
         setAgentPose(agentName, 'lie');
@@ -3836,5 +3716,4 @@ function update(time, delta) {
         return;
     }
 }
-
 
