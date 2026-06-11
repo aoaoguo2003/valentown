@@ -385,6 +385,10 @@ function buildHomeNavNodes() {
         Object.keys(homeDoorOffsets).forEach(doorName => {
             nodes[`${home.area}.${doorName}`] = offsetDoorPoint(home, getHomeDoorOffset(home.area, doorName));
         });
+        // A foyer just inside the door funnels every room to the doorway, so
+        // agents converge on the gap to enter/leave instead of cutting across.
+        const doorInOffset = getHomeDoorOffset(home.area, 'door_in');
+        nodes[`${home.area}.foyer`] = offsetDoorPoint(home, { x: doorInOffset.x, y: doorInOffset.y - 3 });
         nodes[`road.${home.area}`] = { x: home.x + (home.doorXOffset || 0), y: MAIN_ROAD_Y };
     });
 
@@ -397,8 +401,9 @@ function buildHomeNavEdges() {
 
     homeConfigs.forEach(home => {
         roomNames.forEach(roomName => {
-            edges.push([`${home.area}.${roomName}`, `${home.area}.door_in`]);
+            edges.push([`${home.area}.${roomName}`, `${home.area}.foyer`]);
         });
+        edges.push([`${home.area}.foyer`, `${home.area}.door_in`]);
         edges.push([`${home.area}.door_in`, `${home.area}.door_out`]);
         edges.push([`${home.area}.door_out`, `road.${home.area}`]);
     });
@@ -695,6 +700,11 @@ const navNodes = {
     'Pharmacy.door_in': { x: publicDoorX.Pharmacy, y: 80 },
     'Pharmacy.door_out': { x: publicDoorX.Pharmacy, y: PUBLIC_ROAD_Y },
 
+    // Foyers just inside each public entrance, so rooms funnel to the doorway.
+    'Café_bar.foyer': { x: publicDoorX['Café_bar'], y: 77 },
+    'Supermarket.foyer': { x: publicDoorX.Supermarket, y: 77 },
+    'Pharmacy.foyer': { x: publicDoorX.Pharmacy, y: 77 },
+
     'Park.Chair': { x: 59, y: 69 },
     'Park.River': { x: 45, y: 61 },
     'Park.Tree': { x: 56, y: 64 },
@@ -795,33 +805,36 @@ const navEdges = [
     ['Harries_home.Porch', 'Harries_home.door_in'],
     ['Harries_home.door_in', 'Harries_home.door_out'],
 
-    ['Café_bar.Boss', 'Café_bar.door_in'],
-    ['Café_bar.Customer_cafe', 'Café_bar.door_in'],
-    ['Café_bar.Customer_bar', 'Café_bar.door_in'],
-    ['Café_bar.Window_seat', 'Café_bar.door_in'],
-    ['Café_bar.Corner_table', 'Café_bar.door_in'],
-    ['Café_bar.Counter', 'Café_bar.door_in'],
-    ['Café_bar.Patio', 'Café_bar.door_in'],
+    ['Café_bar.Boss', 'Café_bar.foyer'],
+    ['Café_bar.Customer_cafe', 'Café_bar.foyer'],
+    ['Café_bar.Customer_bar', 'Café_bar.foyer'],
+    ['Café_bar.Window_seat', 'Café_bar.foyer'],
+    ['Café_bar.Corner_table', 'Café_bar.foyer'],
+    ['Café_bar.Counter', 'Café_bar.foyer'],
+    ['Café_bar.Patio', 'Café_bar.foyer'],
+    ['Café_bar.foyer', 'Café_bar.door_in'],
     ['Café_bar.door_in', 'Café_bar.door_out'],
     ['Café_bar.door_out', 'road.Café_bar'],
 
-    ['Supermarket.Boss', 'Supermarket.door_in'],
-    ['Supermarket.Customer_drink', 'Supermarket.door_in'],
-    ['Supermarket.Customer_eat', 'Supermarket.door_in'],
-    ['Supermarket.Checkout', 'Supermarket.door_in'],
-    ['Supermarket.Fruit_shelf', 'Supermarket.door_in'],
-    ['Supermarket.Storage', 'Supermarket.door_in'],
-    ['Supermarket.Entrance_aisle', 'Supermarket.door_in'],
+    ['Supermarket.Boss', 'Supermarket.foyer'],
+    ['Supermarket.Customer_drink', 'Supermarket.foyer'],
+    ['Supermarket.Customer_eat', 'Supermarket.foyer'],
+    ['Supermarket.Checkout', 'Supermarket.foyer'],
+    ['Supermarket.Fruit_shelf', 'Supermarket.foyer'],
+    ['Supermarket.Storage', 'Supermarket.foyer'],
+    ['Supermarket.Entrance_aisle', 'Supermarket.foyer'],
+    ['Supermarket.foyer', 'Supermarket.door_in'],
     ['Supermarket.door_in', 'Supermarket.door_out'],
     ['Supermarket.door_out', 'road.Supermarket'],
 
-    ['Pharmacy.Boss', 'Pharmacy.door_in'],
-    ['Pharmacy.Customer_left', 'Pharmacy.door_in'],
-    ['Pharmacy.Customer_right', 'Pharmacy.door_in'],
-    ['Pharmacy.Prescription_counter', 'Pharmacy.door_in'],
-    ['Pharmacy.Medicine_shelf', 'Pharmacy.door_in'],
-    ['Pharmacy.Waiting_chair', 'Pharmacy.door_in'],
-    ['Pharmacy.Consult_room', 'Pharmacy.door_in'],
+    ['Pharmacy.Boss', 'Pharmacy.foyer'],
+    ['Pharmacy.Customer_left', 'Pharmacy.foyer'],
+    ['Pharmacy.Customer_right', 'Pharmacy.foyer'],
+    ['Pharmacy.Prescription_counter', 'Pharmacy.foyer'],
+    ['Pharmacy.Medicine_shelf', 'Pharmacy.foyer'],
+    ['Pharmacy.Waiting_chair', 'Pharmacy.foyer'],
+    ['Pharmacy.Consult_room', 'Pharmacy.foyer'],
+    ['Pharmacy.foyer', 'Pharmacy.door_in'],
     ['Pharmacy.door_in', 'Pharmacy.door_out'],
     ['Pharmacy.door_out', 'road.Pharmacy'],
 
