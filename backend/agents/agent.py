@@ -65,7 +65,8 @@ class Agent:
         self.personality = personality  # 个性描述（如热心、内向等）
         self.goals = goals              # goals of agents
         self.memory = memory            # 记忆系统对象（支持反思、持久化）
-        self.location = location        # 当前所在位置
+        self.location = location        # 初始位置
+        self.current_location = location  # 当前所在位置（每日规划后更新）
         self.character_description = character_description  # 自定义角色描述
         self.claude_api = ClaudeAPI()
         self.daily_plan = {}
@@ -91,17 +92,18 @@ class Agent:
             f"Generate a unique daily plan for {self.name}. "
             f"Here is a basic description of the person: {self.character_description.strip()} "
             f"Use only {self.name}'s recent rolling memory from the last 15 lived days:\n{plans_context}\n"
-            f"And {self.name}'s personal reflection: {refl_context}. "
-            "Please follow exactly the 5 instructions I give you: "
-            "Wake-up time: ..."
-            "Activity time: ..."
-            "Return home time: ..."
-            "Bedtime: ..."
-            f"Task for today: ... "
-            f"{self.name} will only move to Ron home, Ella home, Arthur home, Mia home, Emma home, Gavin home, Adam home, Cafe bar shop, Supermarket, Pharmacy, or Park, choose one of them each day"
-            f"{self.name} will only talk to Ron Parker, Ella Parker, Emma Harris, Gavin Harris, Adam Harris, Mia Thompson, Arthur Morgan, choose one of them each day"
-            "Use plain English only. "
-            "Nothing else you need to generate. Use this exact order: 'Wake-up time: ...', 'Activity time: ...', 'Return home time: ...', 'Bedtime: ...', 'Task for today: ...'. Only provide one task with about 10 words for each day."
+            f"And {self.name}'s personal reflection: {refl_context}.\n"
+            "Produce exactly five lines, in this order and format, with a concrete value after each label:\n"
+            "Wake-up time: <a clock time such as 6:30 AM>\n"
+            "Activity time: <a clock time such as 9:00 AM>\n"
+            "Return home time: <a clock time such as 5:00 PM>\n"
+            "Bedtime: <a clock time such as 10:00 PM>\n"
+            "Task for today: <about 10 words describing one activity>\n"
+            f"For the destination, {self.name} will pick exactly one of: Ron home, Ella home, "
+            "Arthur home, Mia home, Emma home, Gavin home, Adam home, Cafe bar shop, Supermarket, Pharmacy, or Park. "
+            f"For conversation, {self.name} will talk to exactly one of: Ron Parker, Ella Parker, "
+            "Emma Harris, Gavin Harris, Adam Harris, Mia Thompson, Arthur Morgan. "
+            "Use plain English only. Output only the five lines above and nothing else."
         )
         
         # Generate the plan through the configured Claude client.
@@ -130,97 +132,14 @@ class Agent:
         ]
         destination_options = "\n        ".join(home_locations + PUBLIC_LOCATIONS)
         query = f"""
-        Given the daily plan: '{daily_plan}', 
-        which of the following locations is most likely today's destination? 
+        Given the daily plan: '{daily_plan}',
+        which of the following locations is most likely today's destination?
         {destination_options}
+
         Do not choose another person's Bed or Toilet. For visits to someone else's home, prefer Living_room, Sofa, Chair, Porch, or Kitchen.
         For furniture such as Dining_table, Desk, or Bookshelf, prefer a nearby usable spot such as Chair, Reading_chair, Study_corner, or Sofa.
-        Ron_home.Living_room
-        Ron_home.Bed
-        Ron_home.Toilet
-        Ron_home.Kitchen
-        Ron_home.Dining_table
-        Ron_home.Study_corner
-        Ron_home.Porch
-        Ron_home.Window
-        Ella_home.Living_room
-        Ella_home.Bed
-        Ella_home.Toilet
-        Ella_home.Kitchen
-        Ella_home.Dining_table
-        Ella_home.Study_corner
-        Ella_home.Porch
-        Ella_home.Window
-        Arthur_home.Living_room
-        Arthur_home.Bed
-        Arthur_home.Toilet
-        Arthur_home.Kitchen
-        Arthur_home.Dining_table
-        Arthur_home.Study_corner
-        Arthur_home.Porch
-        Arthur_home.Window
-        Mia_home.Living_room
-        Mia_home.Bed
-        Mia_home.Toilet
-        Mia_home.Kitchen
-        Mia_home.Dining_table
-        Mia_home.Study_corner
-        Mia_home.Porch
-        Mia_home.Window
-        Emma_home.Living_room
-        Emma_home.Bed
-        Emma_home.Toilet
-        Emma_home.Kitchen
-        Emma_home.Dining_table
-        Emma_home.Study_corner
-        Emma_home.Porch
-        Emma_home.Window
-        Gavin_home.Living_room
-        Gavin_home.Bed
-        Gavin_home.Toilet
-        Gavin_home.Kitchen
-        Gavin_home.Dining_table
-        Gavin_home.Study_corner
-        Gavin_home.Porch
-        Gavin_home.Window
-        Adam_home.Living_room
-        Adam_home.Bed
-        Adam_home.Toilet
-        Adam_home.Kitchen
-        Adam_home.Dining_table
-        Adam_home.Study_corner
-        Adam_home.Porch
-        Adam_home.Window
-        Park.Chair
-        Park.River
-        Park.Tree
-        Park.Bench
-        Park.Flower_bed
-        Park.Playground
-        Park.Bridge
-        Café_bar.Boss
-        Café_bar.Customer_cafe
-        Café_bar.Customer_bar
-        Café_bar.Window_seat
-        Café_bar.Corner_table
-        Café_bar.Counter
-        Café_bar.Patio
-        Supermarket.Boss
-        Supermarket.Customer_drink
-        Supermarket.Customer_eat
-        Supermarket.Checkout
-        Supermarket.Fruit_shelf
-        Supermarket.Storage
-        Supermarket.Entrance_aisle
-        Pharmacy.Boss
-        Pharmacy.Customer_left
-        Pharmacy.Customer_right
-        Pharmacy.Prescription_counter
-        Pharmacy.Medicine_shelf
-        Pharmacy.Waiting_chair
-        Pharmacy.Consult_room
 
-        Only choose one of the locations. Do not generate any unnecessary words. 
+        Only choose one of the locations listed above. Do not generate any unnecessary words.
         You only need to answer with the location name.
         """
         # Request a single destination from Claude.
@@ -282,7 +201,7 @@ class Agent:
             f"You are {target_agent.name}, you should answer {self.name} now "
             f"Based on his/her question:\n{question}\n"
             "Use plain English only. "
-            f"Nothing else you need to generate, just act as {target_agent} ({target_agent.age} years old) and generate a response for about 10 words."
+            f"Nothing else you need to generate, just act as {target_agent.name} ({target_agent.age} years old) and generate a response for about 10 words."
         )
         
         answer = target_agent.claude_api.get_response(target_agent.name, answer_context, "")

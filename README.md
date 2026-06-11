@@ -211,6 +211,14 @@ Run the JavaScript syntax check:
 node --check frontend/js/game.js
 ```
 
+Run the backend unit tests (deterministic core, no Claude calls):
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest
+```
+
 Run the 24-hour schedule and route smoke test from the repository root:
 
 ```bash

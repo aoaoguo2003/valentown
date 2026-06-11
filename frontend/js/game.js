@@ -1,3 +1,7 @@
+// Backend API base URL. Override by setting window.BACKEND_BASE_URL before this
+// script loads (e.g. in index.html) to point at a non-local deployment.
+const BACKEND_BASE_URL = (typeof window !== 'undefined' && window.BACKEND_BASE_URL) || 'http://localhost:5000';
+
 let UNIT = 10;  // 每个单位 = 10 像素
 let VIEW_W = 160 * UNIT;   // 1600px viewport
 let WORLD_W = 260 * UNIT;  // 2600px scrollable map
@@ -2255,7 +2259,7 @@ function syncAgentActionState(agentName, locationName, actionText = '', options 
     const elapsedGameMinutes = Math.max(0, Math.round(currentTimeMinutes - previousMinutes));
     lastInternalStateSyncMinutes[agentName] = currentTimeMinutes;
 
-    return fetch('http://localhost:5000/complete_agent_action', {
+    return fetch(`${BACKEND_BASE_URL}/complete_agent_action`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2385,7 +2389,7 @@ function syncSimulationProgress(options = {}) {
     }
     lastProgressSyncAt = now;
 
-    fetch('http://localhost:5000/update_simulation_progress', {
+    fetch(`${BACKEND_BASE_URL}/update_simulation_progress`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2402,7 +2406,7 @@ function syncSimulationProgress(options = {}) {
 }
 
 function getSimulationConfig() {
-    return fetch('http://localhost:5000/get_config')
+    return fetch(`${BACKEND_BASE_URL}/get_config`)
         .then(response => {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -2417,7 +2421,7 @@ function getSimulationConfig() {
 
 // 从后端获取代理的每日计划
 function getAgentDailyPlan(agentName, day) {
-    return fetch(`http://localhost:5000/get_daily_plan?agent_name=${agentName}&life_day=${day}`)
+    return fetch(`${BACKEND_BASE_URL}/get_daily_plan?agent_name=${agentName}&life_day=${day}`)
         .then(response => {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
@@ -2434,7 +2438,7 @@ function getAgentDailyPlan(agentName, day) {
 // 从后端获取当天的所有对话记录
 function getDailyConversations(day, location = null) {
     // 构建请求URL
-    let url = `http://localhost:5000/get_conversations?life_day=${day}`;
+    let url = `${BACKEND_BASE_URL}/get_conversations?life_day=${day}`;
     if (location) {
         url += `&location=${encodeURIComponent(location)}`;
     }

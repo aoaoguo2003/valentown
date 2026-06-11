@@ -13,7 +13,20 @@ class Reflection:
             self.memory_system.set_life_day(life_day)
 
         all_memories = self.memory_system.get_memories(agent_name=self.agent_name)
-        recent_memories = sorted(all_memories, key=lambda mem: mem.importance, reverse=True)[:20]
+
+        # Seed reflection from lived experience only; excluding prior reflections
+        # prevents an echo chamber where the agent reflects on its own reflections.
+        experiences = [mem for mem in all_memories if mem.category != "reflection"]
+
+        # Rank by a combined importance + recency score (closer lived days score
+        # higher) so the seed is not dominated purely by static importance values.
+        current_day = self.memory_system.current_life_day
+
+        def relevance_score(mem):
+            recency = max(0, current_day - (mem.life_day or current_day))
+            return mem.importance - recency
+
+        recent_memories = sorted(experiences, key=relevance_score, reverse=True)[:20]
         recent_memory_context = "\n".join(f"- {mem.content}" for mem in recent_memories) if recent_memories else "No recent memory."
 
         question_context = (

@@ -1,5 +1,13 @@
+import time
+
 import requests
+
 from config import ANTHROPIC_API_KEY, ANTHROPIC_API_URL, CLAUDE_MODEL
+
+# Transient HTTP statuses worth retrying with exponential backoff.
+RETRYABLE_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504, 529}
+MAX_RETRIES = 4
+BASE_BACKOFF_SECONDS = 2
 
 
 class ClaudeAPI:
@@ -8,7 +16,7 @@ class ClaudeAPI:
         self.base_url = f"{ANTHROPIC_API_URL.rstrip('/')}/v1/messages"
         self.model = CLAUDE_MODEL
 
-    def get_response(self, agent_name, context, memory):
+    def get_response(self, agent_name, context, memory=None):
         if not self.api_key:
             print("ANTHROPIC_API_KEY is not set. Skipping Claude request.")
             return None
@@ -35,20 +43,30 @@ class ClaudeAPI:
             ]
         }
 
-        try:
-            response = requests.post(self.base_url, headers=headers, json=data, timeout=60)
-            if response.status_code != 200:
-                print(f"Claude request failed: {response.status_code}")
-                print(response.text)
-                return None
+        last_error = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                response = requests.post(self.base_url, headers=headers, json=data, timeout=60)
+                if response.status_code == 200:
+                    result = response.json()
+                    text_parts = [
+                        block.get("text", "")
+                        for block in result.get("content", [])
+                        if block.get("type") == "text"
+                    ]
+                    return "".join(text_parts).strip() or None
 
-            result = response.json()
-            text_parts = [
-                block.get("text", "")
-                for block in result.get("content", [])
-                if block.get("type") == "text"
-            ]
-            return "".join(text_parts).strip() or None
-        except Exception as error:
-            print(f"Claude request error: {error}")
-            return None
+                last_error = f"status {response.status_code}: {response.text}"
+                if response.status_code not in RETRYABLE_STATUS_CODES:
+                    print(f"Claude request failed ({last_error}).")
+                    return None
+            except requests.RequestException as error:
+                last_error = str(error)
+
+            if attempt < MAX_RETRIES - 1:
+                backoff = BASE_BACKOFF_SECONDS * (2 ** attempt)
+                print(f"Claude request transient failure ({last_error}); retrying in {backoff}s.")
+                time.sleep(backoff)
+
+        print(f"Claude request failed after {MAX_RETRIES} attempts: {last_error}")
+        return None

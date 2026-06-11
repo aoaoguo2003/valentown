@@ -14,6 +14,7 @@ from agent_state import (
 from config import USE_CACHED_DAILY_PLANS
 import json
 import os
+import threading
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -55,6 +56,9 @@ memory_system.initialize_agents(agent_names)
 
 # 创建一个字典来存储每天每个代理的计划
 daily_plans = {}
+# Serialize lived-day generation so concurrent requests cannot double-generate
+# a day or race on the shared daily_plans dict and life_plans.json file.
+plan_generation_lock = threading.Lock()
 simulation_progress = {
     "current_life_day": 1,
     "current_time_minutes": 6 * 60,
@@ -115,11 +119,22 @@ load_life_plans()
 
 def ensure_life_day_plan(life_day):
     life_day = max(1, int(life_day or 1))
+    with plan_generation_lock:
+        _ensure_life_day_plan_locked(life_day)
+
+
+def _ensure_life_day_plan_locked(life_day):
     load_life_plans()
     if life_day in daily_plans and all(agent.name in daily_plans[life_day] for agent in agents):
         memory_system.set_life_day(life_day, agent_names)
         save_simulation_progress({"current_life_day": life_day})
         return
+
+    if USE_CACHED_DAILY_PLANS:
+        raise RuntimeError(
+            f"Lived day {life_day} is not cached and USE_CACHED_DAILY_PLANS is enabled, "
+            "so Claude generation is disabled."
+        )
 
     memory_system.set_life_day(life_day, agent_names)
     print(f"\n========== Generating lived day {life_day} ==========")
@@ -242,7 +257,8 @@ def get_config():
 
 @app.route('/get_simulation_progress', methods=['GET'])
 def get_simulation_progress():
-    return jsonify(save_simulation_progress())
+    # Read-only: a GET must not write to disk or mutate shared state.
+    return jsonify(dict(simulation_progress))
 
 @app.route('/update_simulation_progress', methods=['POST'])
 def update_simulation_progress():
@@ -396,4 +412,7 @@ def favicon():
 
 # 启动 Flask
 if __name__ == "__main__":
-    app.run(debug=False, host='0.0.0.0', port=5000, use_reloader=False)
+    host = os.getenv("FLASK_HOST", "127.0.0.1")
+    port = int(os.getenv("FLASK_PORT", "5000"))
+    debug = os.getenv("FLASK_DEBUG", "false").lower() == "true"
+    app.run(debug=debug, host=host, port=port, use_reloader=False)
