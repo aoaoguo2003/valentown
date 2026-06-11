@@ -2443,7 +2443,7 @@ function showAgentSpeech(agentName, speechContent, onComplete) {
         fill: '#000',
         wordWrap: { width: 150, useAdvancedWrap: true },
     }).setVisible(false);
-    
+
     const padding = 6;
     const textWidth = tempText.width;
     const textHeight = tempText.height;
@@ -2454,12 +2454,12 @@ function showAgentSpeech(agentName, speechContent, onComplete) {
     const rectH = textHeight + padding * 2;
     const radius = 8;
     const tailWidth = 8;
-    const tailHeight = 6;
+    const tailHeight = 8;
     const view = getCameraWorldView(this, 10);
     const x = agent.x;
     const rectX = clampNumber(x - (rectW / 2), view.left, view.right - rectW);
-    const aboveRectY = agent.y - 56 - rectH;
-    const belowRectY = agent.y + 28;
+    const aboveRectY = agent.y - 50 - rectH;
+    const belowRectY = agent.y + 24;
     const fitsAbove = aboveRectY >= view.top;
     const fitsBelow = belowRectY + rectH + tailHeight <= view.bottom;
     const placeBelow = !fitsAbove && fitsBelow;
