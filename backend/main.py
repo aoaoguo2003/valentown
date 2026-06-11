@@ -1,6 +1,7 @@
 from flask import Flask, jsonify, request
 from agents.agent import RonParker, EllaParker, EmmaHarris, GavinHarris, AdamHarris, MiaThompson, ArthurMorgan
 from memory.memory_system import MemorySystem
+from memory.persona_store import persona_store
 from memory.reflection import Reflection
 from agent_state import (
     advance_agent_state_time,
@@ -312,6 +313,20 @@ def get_agent_internal_state():
         "agent_name": agent_name,
         "state": state,
         "triggers": evaluate_agent_triggers(state)
+    })
+
+
+@app.route('/get_agent_persona', methods=['GET'])
+def get_agent_persona():
+    agent_name = request.args.get('agent_name')
+    if not agent_name:
+        return jsonify({"error": "agent_name is required"}), 400
+    if agent_name not in agent_names:
+        return jsonify({"error": "Unknown agent"}), 404
+
+    return jsonify({
+        "agent_name": agent_name,
+        "persona": persona_store.get(agent_name)
     })
 
 

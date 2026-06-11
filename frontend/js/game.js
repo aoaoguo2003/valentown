@@ -27,8 +27,7 @@ let simulationStarted = false;
 let simulationPaused = false;
 let nightInProgress = false;
 let simulationSpeed = 1;
-let routesVisible = true;
-let focusedRouteAgent = null;
+let focusedRouteAgent = null;  // paths are hidden unless one agent is focused
 let selectedAgentName = 'Ron Parker';
 let userControlledAgentName = null;
 let gameScene = null;
@@ -47,6 +46,9 @@ let sleepBubbles = {};
 let sleepBubbleTweens = {};
 let anchorDebugObjects = [];
 let lastInternalStateSyncMinutes = {};
+let agentNeeds = {};        // { name: { hunger, energy, social } } polled for the needs panel
+let agentPersonas = {};     // { name: persona text | null } fetched on selection / new day
+let needsPollTimer = null;
 let restoredAgentSnapshot = null;
 let walkingFrameTimers = {};
 let manualControlKeys = { w: false, a: false, s: false, d: false };
@@ -72,7 +74,6 @@ function computeDefaultSchedule(agentIndex) {
         bedTime: Math.min(DEFAULT_BED_MINUTES + (agentIndex * BED_STAGGER_MINUTES), DAY_END_MINUTES)
     };
 }
-const CAMERA_STEP = 42 * UNIT;
 const USER_CONTROL_SPEED_PIXELS_PER_SECOND = 58;
 const USER_CONTROL_WALK_RADIUS = 18;
 const USER_CONTROL_SYNC_INTERVAL_MS = 1500;
@@ -410,6 +411,7 @@ let gameConfig = {
     width: VIEW_W,
     height: WORLD_H,
     parent: 'game-container',
+    backgroundColor: '#cce6ff',  // fills the band above/below the zoomed-out town
     scene: { preload, create, update },
     scale: {
         mode: Phaser.Scale.FIT,
@@ -418,6 +420,9 @@ let gameConfig = {
 };
 
 const game = new Phaser.Game(gameConfig);
+
+// Fit the canvas to the reserved map area once the page has laid out.
+window.addEventListener('load', () => game.scale.refresh());
 
 function preload() {
     // 加载所有资源
@@ -1013,6 +1018,9 @@ function create() {
     // 背景
     currentBackground = this.add.tileSprite(0, 0, WORLD_W, WORLD_H, 'background').setOrigin(0).setDepth(-1);
     this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
+    // Zoom out so the whole town width is visible at once (no horizontal scroll).
+    this.cameras.main.setZoom(VIEW_W / WORLD_W);
+    this.cameras.main.centerOn(WORLD_W / 2, WORLD_H / 2);
     drawTownPaths(this);
 
     let wR = this.sys.game.config.width / 160;
@@ -1092,13 +1100,8 @@ function create() {
 function setupUi() {
     const startButton = document.getElementById('start-sim');
     const pauseButton = document.getElementById('pause-sim');
-    const topPanelToggle = document.getElementById('top-panel-toggle');
-    const panelToggle = document.getElementById('panel-toggle');
-    const routeToggle = document.getElementById('route-toggle');
     const routeFocus = document.getElementById('route-focus');
     const controlAgent = document.getElementById('control-agent');
-    const panLeft = document.getElementById('pan-left');
-    const panRight = document.getElementById('pan-right');
 
     startButton.addEventListener('click', () => {
         simulationStarted = true;
@@ -1114,42 +1117,8 @@ function setupUi() {
         updateUi();
     });
 
-    topPanelToggle.addEventListener('click', event => {
-        event.stopPropagation();
-        toggleTopPanel();
-    });
-
-    panelToggle.addEventListener('click', event => {
-        event.stopPropagation();
-        toggleSidePanel();
-    });
-
-    document.addEventListener('pointerdown', event => {
-        const panel = document.getElementById('side-panel');
-        const topPanel = document.querySelector('.top-panel');
-
-        if (
-            panel.classList.contains('collapsed') ||
-            panel.contains(event.target) ||
-            topPanel.contains(event.target)
-        ) {
-            return;
-        }
-
-        setSidePanelCollapsed(true);
-    });
-
-    routeToggle.addEventListener('click', () => {
-        routesVisible = !routesVisible;
-        if (!routesVisible) {
-            clearActiveRoutes();
-        }
-        updateRouteControls();
-    });
-
     routeFocus.addEventListener('click', () => {
         focusedRouteAgent = focusedRouteAgent === selectedAgentName ? null : selectedAgentName;
-        routesVisible = true;
         clearActiveRoutes(line => line.agentName !== focusedRouteAgent);
         updateRouteControls();
     });
@@ -1158,9 +1127,6 @@ function setupUi() {
     window.addEventListener('keydown', event => handleUserControlKey(event));
     window.addEventListener('keyup', event => handleUserControlKeyUp(event));
     window.addEventListener('blur', () => clearManualControlKeys());
-
-    panLeft.addEventListener('click', () => panMap(-1));
-    panRight.addEventListener('click', () => panMap(1));
 
     document.querySelectorAll('.speed-button').forEach(button => {
         button.addEventListener('click', () => {
@@ -1171,68 +1137,102 @@ function setupUi() {
         });
     });
 
-    renderAgentList();
+    renderNeedsPanel();
+    startNeedsPolling();
     updateRouteControls();
 }
 
-function toggleTopPanel() {
-    const topPanel = document.querySelector('.top-panel');
-    setTopPanelCollapsed(!topPanel.classList.contains('collapsed'));
+// Every bar reads as wellbeing: full = good (well-fed, rested, socially
+// content), empty = needs attention. Hunger is inverted into "satiety" so all
+// three share the same direction. Satisfaction drives both width and colour.
+function needSatisfaction(kind, value) {
+    return kind === 'hunger' ? 100 - value : value;
 }
 
-function setTopPanelCollapsed(collapsed) {
-    const topPanel = document.querySelector('.top-panel');
-    const topPanelToggle = document.getElementById('top-panel-toggle');
-
-    topPanel.classList.toggle('collapsed', collapsed);
-    topPanelToggle.textContent = collapsed ? '+' : '−';
-    topPanelToggle.setAttribute(
-        'aria-label',
-        collapsed ? 'Expand simulation controls' : 'Collapse simulation controls'
-    );
+function needBarMarkup(label, kind, rawValue) {
+    const hasValue = typeof rawValue === 'number' && !Number.isNaN(rawValue);
+    const satisfaction = hasValue
+        ? Math.max(0, Math.min(100, Math.round(needSatisfaction(kind, rawValue))))
+        : 0;
+    const hue = Math.round((satisfaction / 100) * 120); // 0 red (bad) .. 120 green (good)
+    const fill = hasValue ? `hsl(${hue}, 64%, 47%)` : 'rgba(45, 67, 51, 0.2)';
+    const text = hasValue ? satisfaction : '–';
+    return `<div class="need-row">`
+        + `<span class="need-label">${label}</span>`
+        + `<span class="need-track"><span class="need-fill" style="width:${satisfaction}%;background-color:${fill}"></span></span>`
+        + `<span class="need-value">${text}</span>`
+        + `</div>`;
 }
 
-function panMap(direction) {
-    if (!gameScene) {
+function renderNeedsPanel() {
+    const panel = document.getElementById('needs-panel');
+    if (!panel) {
         return;
     }
+    panel.innerHTML = '';
 
-    const camera = gameScene.cameras.main;
-    const maxScrollX = Math.max(0, WORLD_W - VIEW_W);
-    const targetX = Phaser.Math.Clamp(camera.scrollX + (direction * CAMERA_STEP), 0, maxScrollX);
-    camera.pan(targetX + (VIEW_W / 2), WORLD_H / 2, 320, 'Sine.easeInOut');
-}
-
-function toggleSidePanel() {
-    const panel = document.getElementById('side-panel');
-    setSidePanelCollapsed(!panel.classList.contains('collapsed'));
-}
-
-function setSidePanelCollapsed(collapsed) {
-    const panel = document.getElementById('side-panel');
-    const panelToggle = document.getElementById('panel-toggle');
-
-    panel.classList.toggle('collapsed', collapsed);
-    panelToggle.textContent = collapsed ? 'Open' : 'Close';
-    panelToggle.setAttribute('aria-label', collapsed ? 'Expand character panel' : 'Collapse character panel');
-}
-
-function renderAgentList() {
-    const list = document.getElementById('agent-list');
-    list.innerHTML = '';
-
-    Object.keys(agentState).forEach(agentName => {
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.className = 'agent-pill';
-        button.textContent = agentName;
-        button.addEventListener('click', () => selectAgent(agentName));
-        list.appendChild(button);
+    Object.keys(agentProfiles).forEach(agentName => {
+        const profile = agentProfiles[agentName];
+        const values = agentNeeds[agentName] || {};
+        const card = document.createElement('button');
+        card.type = 'button';
+        card.className = 'need-card';
+        card.dataset.agent = agentName;
+        card.classList.toggle('active', agentName === selectedAgentName);
+        card.classList.toggle('controlled', agentName === userControlledAgentName);
+        card.innerHTML =
+            `<div class="need-card-head">`
+            + `<span class="need-name">${escapeHtml(agentName)}</span>`
+            + `<span class="need-role">${escapeHtml(profile.role || '')}</span>`
+            + `</div>`
+            + needBarMarkup('Fed', 'hunger', values.hunger)
+            + needBarMarkup('Energy', 'energy', values.energy)
+            + needBarMarkup('Social', 'social', values.social);
+        card.addEventListener('click', () => selectAgent(agentName));
+        panel.appendChild(card);
     });
+}
+
+function fetchAllInternalStates() {
+    const names = Object.keys(agentProfiles);
+    return Promise.all(names.map(agentName =>
+        fetch(`${BACKEND_BASE_URL}/get_agent_internal_state?agent_name=${encodeURIComponent(agentName)}`)
+            .then(response => (response.ok ? response.json() : null))
+            .then(data => {
+                const values = data?.state?.values;
+                if (values) {
+                    agentNeeds[agentName] = values;
+                }
+            })
+            .catch(() => {})
+    )).then(() => renderNeedsPanel());
+}
+
+function startNeedsPolling() {
+    if (needsPollTimer) {
+        return;
+    }
+    fetchAllInternalStates();
+    needsPollTimer = setInterval(fetchAllInternalStates, 4000);
+}
+
+function fetchPersona(agentName) {
+    fetch(`${BACKEND_BASE_URL}/get_agent_persona?agent_name=${encodeURIComponent(agentName)}`)
+        .then(response => (response.ok ? response.json() : null))
+        .then(data => {
+            agentPersonas[agentName] = data?.persona || null;
+            if (agentName === selectedAgentName) {
+                updateAgentPanel();
+            }
+        })
+        .catch(() => {});
 }
 
 function selectAgent(agentName) {
     selectedAgentName = agentName;
+    if (!(agentName in agentPersonas)) {
+        fetchPersona(agentName);
+    }
     refreshAgentTints();
     updateRouteControls();
     updateUi();
@@ -1251,19 +1251,16 @@ function refreshAgentTints() {
 }
 
 function updateRouteControls() {
-    const routeToggle = document.getElementById('route-toggle');
     const routeFocus = document.getElementById('route-focus');
     const controlAgent = document.getElementById('control-agent');
     const manualControlHint = document.getElementById('manual-control-hint');
 
-    if (!routeToggle || !routeFocus || !controlAgent) {
+    if (!routeFocus || !controlAgent) {
         return;
     }
 
-    routeToggle.textContent = routesVisible ? 'Hide Paths' : 'Show Paths';
-    routeToggle.classList.toggle('active', routesVisible);
     routeFocus.textContent = focusedRouteAgent === selectedAgentName
-        ? `All Paths`
+        ? 'Hide Path'
         : `${selectedAgentName.split(' ')[0]}'s Path`;
     routeFocus.classList.toggle('active', focusedRouteAgent === selectedAgentName);
     controlAgent.textContent = userControlledAgentName === selectedAgentName ? 'Release' : 'Control';
@@ -1777,9 +1774,9 @@ function updateUi() {
     document.getElementById('pause-sim').textContent = simulationPaused ? 'Resume' : 'Pause';
     updateClockUi();
 
-    document.querySelectorAll('.agent-pill').forEach(button => {
-        button.classList.toggle('active', button.textContent === selectedAgentName);
-        button.classList.toggle('controlled', button.textContent === userControlledAgentName);
+    document.querySelectorAll('.need-card').forEach(card => {
+        card.classList.toggle('active', card.dataset.agent === selectedAgentName);
+        card.classList.toggle('controlled', card.dataset.agent === userControlledAgentName);
     });
 
     refreshAgentTints();
@@ -1798,8 +1795,16 @@ function updateAgentPanel() {
     document.getElementById('agent-location').textContent = formatLocation(agentLocations[selectedAgentName] || profile.home || 'Unknown');
     document.getElementById('agent-state').textContent = agentPhases[selectedAgentName] || 'Ready';
     document.getElementById('agent-plan').textContent = currentAction.action || 'Deciding what to do next.';
-    document.getElementById('agent-destination').textContent = currentAction.destination ? formatLocation(currentAction.destination) : 'Waiting for simulation';
-    document.getElementById('agent-schedule').textContent = formatAgentSchedule(selectedAgentName, displayDay);
+    const destinationEl = document.getElementById('agent-destination');
+    if (destinationEl) {
+        destinationEl.textContent = currentAction.destination ? formatLocation(currentAction.destination) : 'Waiting for simulation';
+    }
+
+    const personaEl = document.getElementById('agent-persona');
+    if (personaEl) {
+        personaEl.textContent = agentPersonas[selectedAgentName]
+            || 'No self-reflection yet — it forms after the first night.';
+    }
 
     const conversationList = document.getElementById('conversation-list');
     conversationList.innerHTML = '';
@@ -1837,15 +1842,6 @@ function updateClockUi() {
         1
     );
     progressBar.style.width = `${Math.round(dayProgress * 100)}%`;
-}
-
-function formatAgentSchedule(agentName, day) {
-    const schedule = agentSchedules[day]?.[agentName];
-    if (!schedule) {
-        return 'Waiting for day to start';
-    }
-
-    return `Wake ${formatSimTime(schedule.wakeTime)} | Bed ${formatSimTime(schedule.bedTime)}`;
 }
 
 function reserveDestination(agentName, requestedLocation) {
@@ -3528,7 +3524,8 @@ function normalizeOrthogonalWaypoints(startX, startY, waypoints) {
 }
 
 function shouldDrawRoute(agentName) {
-    return routesVisible && (!focusedRouteAgent || focusedRouteAgent === agentName);
+    // Paths stay hidden unless the user explicitly focuses one agent.
+    return focusedRouteAgent === agentName;
 }
 
 function moveAgentAlongWaypoints(agent, waypoints, onComplete) {
@@ -3674,7 +3671,11 @@ function startUnifiedNight(scene) {
         dailyPlanInProgress = false;
         dailyScheduleLoadedByDay[currentPlanDay] = false;
         // 通知后端进入新一天：持久化进度并触发每位代理的反思
-        notifyNewDay(currentPlanDay);
+        notifyNewDay(currentPlanDay).finally(() => {
+            // Personas evolve overnight; drop the cache so they re-fetch fresh.
+            agentPersonas = {};
+            fetchPersona(selectedAgentName);
+        });
         syncSimulationProgress({ force: true });
         updateUi();
     });

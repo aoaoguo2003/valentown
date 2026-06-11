@@ -4,90 +4,83 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Valentown</title>
-  <link rel="stylesheet" href="styles.css?v=65" />
+  <link rel="stylesheet" href="styles.css?v=73" />
 </head>
 <body>
-  <section class="top-panel" aria-label="Simulation controls">
-    <button id="top-panel-toggle" class="top-panel-toggle" type="button" aria-label="Collapse simulation controls">Collapse</button>
-    <div class="day-card">
-      <span id="day-label">Valentown</span>
-      <small id="status-label">Ready</small>
-    </div>
-    <div class="clock-card" aria-label="Simulation clock">
-      <span id="time-label">6:00 AM</span>
-      <small id="clock-phase">Morning</small>
-      <div class="time-progress" aria-hidden="true">
-        <span id="time-progress-bar"></span>
-      </div>
-    </div>
-    <div class="controls">
-      <button id="start-sim" type="button" disabled>Start</button>
-      <button id="pause-sim" type="button" disabled>Pause</button>
-    </div>
-    <div class="speed-controls" aria-label="Simulation speed">
-      <button class="speed-button active" type="button" data-speed="1">1x</button>
-      <button class="speed-button" type="button" data-speed="2">2x</button>
-      <button class="speed-button" type="button" data-speed="4">4x</button>
-    </div>
-  </section>
-
   <aside id="side-panel" class="side-panel" aria-label="Character details">
-    <button id="panel-toggle" class="panel-toggle" type="button" aria-label="Collapse character panel">Close</button>
-    <div class="panel-header">
-      <span id="agent-role">Supermarket Owner</span>
-      <h1 id="agent-name">Ron Parker</h1>
+    <div class="dock-controls" aria-label="Simulation controls">
+      <div class="day-card">
+        <span id="day-label">Valentown</span>
+        <small id="status-label">Ready</small>
+      </div>
+      <div class="clock-card" aria-label="Simulation clock">
+        <span id="time-label">6:00 AM</span>
+        <small id="clock-phase">Morning</small>
+        <div class="time-progress" aria-hidden="true">
+          <span id="time-progress-bar"></span>
+        </div>
+      </div>
+      <div class="controls">
+        <button id="start-sim" type="button" disabled>Start</button>
+        <button id="pause-sim" type="button" disabled>Pause</button>
+      </div>
+      <div class="speed-controls" aria-label="Simulation speed">
+        <button class="speed-button active" type="button" data-speed="1">1x</button>
+        <button class="speed-button" type="button" data-speed="2">2x</button>
+        <button class="speed-button" type="button" data-speed="4">4x</button>
+      </div>
     </div>
 
-    <div id="agent-list" class="agent-list" aria-label="Characters"></div>
+    <div class="side-panel-body">
+      <section class="dock-col needs-col">
+        <h2>Residents' Needs</h2>
+        <div id="needs-panel" class="needs-panel" aria-label="Internal needs of each resident"></div>
+      </section>
 
-    <div class="route-controls" aria-label="Route display controls">
-      <button id="route-toggle" type="button">Hide Paths</button>
-      <button id="route-focus" type="button">Selected Path</button>
-      <button id="control-agent" type="button">Control</button>
+      <section class="dock-col agent-col">
+        <div class="panel-header">
+          <span id="agent-role">Supermarket Owner</span>
+          <h1 id="agent-name">Ron Parker</h1>
+        </div>
+
+        <dl class="agent-meta">
+          <div>
+            <dt>Status</dt>
+            <dd id="agent-state">—</dd>
+          </div>
+          <div>
+            <dt>Doing</dt>
+            <dd id="agent-plan">—</dd>
+          </div>
+          <div>
+            <dt>At</dt>
+            <dd id="agent-location">—</dd>
+          </div>
+        </dl>
+
+        <div class="route-controls" aria-label="Route display controls">
+          <button id="route-focus" type="button">Show Path</button>
+          <button id="control-agent" type="button">Control</button>
+        </div>
+        <p id="manual-control-hint" class="manual-control-hint" hidden>Manual mode: use W/A/S/D. This agent's autonomous decisions are paused.</p>
+
+        <h2>Self-reflection</h2>
+        <p id="agent-persona">No self-reflection yet — it forms after the first night.</p>
+      </section>
+
+      <section class="dock-col convo-col">
+        <h2>Conversation Log</h2>
+        <ul id="conversation-list" class="conversation-list">
+          <li class="empty-message">No conversations recorded for this day yet.</li>
+        </ul>
+      </section>
     </div>
-    <p id="manual-control-hint" class="manual-control-hint" hidden>Manual mode: use W/A/S/D. This agent's auto plan is paused.</p>
-
-    <dl class="agent-meta">
-      <div>
-        <dt>Location</dt>
-        <dd id="agent-location">Parker home / Living room</dd>
-      </div>
-      <div>
-        <dt>Status</dt>
-        <dd id="agent-state">Planning</dd>
-      </div>
-      <div>
-        <dt>Destination</dt>
-        <dd id="agent-destination">Waiting for simulation</dd>
-      </div>
-      <div>
-        <dt>Schedule</dt>
-        <dd id="agent-schedule">Waiting for plan</dd>
-      </div>
-    </dl>
-
-    <section class="detail-section">
-      <h2>Today's Plan</h2>
-      <p id="agent-plan">No plan loaded yet.</p>
-    </section>
-
-    <section class="detail-section">
-      <h2>Conversation Log</h2>
-      <ul id="conversation-list" class="conversation-list">
-        <li class="empty-message">No conversations recorded for this day yet.</li>
-      </ul>
-    </section>
   </aside>
-
-  <div class="map-pan" aria-label="Map navigation">
-    <button id="pan-left" type="button" aria-label="Move map left">&lt;</button>
-    <button id="pan-right" type="button" aria-label="Move map right">&gt;</button>
-  </div>
 
   <div id="game-container"></div>
 
   <!-- Phaser 3 (served locally from node_modules; run `npm install` first) -->
   <script src="node_modules/phaser/dist/phaser.min.js"></script>
-  <script src="js/game.js?v=66"></script>
+  <script src="js/game.js?v=75"></script>
 </body>
 </html>
