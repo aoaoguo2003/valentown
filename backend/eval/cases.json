@@ -1,0 +1,53 @@
+[
+  {
+    "name": "hungry_morning",
+    "agent": "Ron Parker",
+    "internal_state": {"values": {"hunger": 95, "energy": 70, "social": 60}},
+    "triggers": [{"need": "hunger", "reason": "very hungry", "intent": "seek_food"}],
+    "time_text": "8:00 AM",
+    "current_location": "Ron_home.Living_room"
+  },
+  {
+    "name": "tired_afternoon",
+    "agent": "Ron Parker",
+    "internal_state": {"values": {"hunger": 30, "energy": 8, "social": 50}},
+    "triggers": [{"need": "energy", "reason": "exhausted", "intent": "rest"}],
+    "time_text": "3:00 PM",
+    "current_location": "Park.Bench"
+  },
+  {
+    "name": "lonely_evening",
+    "agent": "Mia Thompson",
+    "internal_state": {"values": {"hunger": 40, "energy": 60, "social": 10}},
+    "triggers": [{"need": "social", "reason": "feeling lonely", "intent": "socialize"}],
+    "time_text": "6:00 PM",
+    "current_location": "Mia_home.Living_room"
+  },
+  {
+    "name": "tired_and_hungry",
+    "agent": "Ella Parker",
+    "internal_state": {"values": {"hunger": 85, "energy": 9, "social": 50}},
+    "triggers": [
+      {"need": "energy", "reason": "exhausted", "intent": "rest"},
+      {"need": "hunger", "reason": "hungry", "intent": "seek_food"}
+    ],
+    "time_text": "1:00 PM",
+    "current_location": "Ella_home.Living_room"
+  },
+  {
+    "name": "hungry_pharmacist",
+    "agent": "Ella Parker",
+    "internal_state": {"values": {"hunger": 92, "energy": 65, "social": 55}},
+    "triggers": [{"need": "hunger", "reason": "skipped breakfast", "intent": "seek_food"}],
+    "time_text": "11:00 AM",
+    "current_location": "Pharmacy.Prescription_counter"
+  },
+  {
+    "name": "no_urgent_needs",
+    "agent": "Arthur Morgan",
+    "internal_state": {"values": {"hunger": 35, "energy": 70, "social": 65}},
+    "triggers": [],
+    "time_text": "10:00 AM",
+    "current_location": "Arthur_home.Living_room"
+  }
+]
