@@ -22,6 +22,7 @@ backend/conversations.json
 backend/memory_data.json
 backend/agent_internal_states/*.json
 backend/memory/agent_memory_banks/*.json
+backend/memory/agent_personas/
 backend/daily_plans.backup-*.json
 
 # Local diagnostics and working documents

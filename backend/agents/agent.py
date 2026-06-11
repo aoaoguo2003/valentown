@@ -1,6 +1,7 @@
 from llm import LLMClient
 from observability import trace_operation
 from retrieval import retriever
+from memory.persona_store import persona_store
 
 HOME_AREAS = [
     "Ron_home",
@@ -164,9 +165,13 @@ class Agent:
             f"Just finished: {last_action_text}"
         )
 
+        persona = persona_store.get(self.name)
+        persona_line = f"Your evolving self-reflection: {persona}\n" if persona else ""
+
         context = (
             f"It is day {day_number}, {time_text} in Valentown. "
             f"Here is a basic description of you: {self.character_description.strip()}\n"
+            f"{persona_line}"
             f"You are currently at {current_location}.\n"
             f"What you just finished: {last_action_text}\n"
             f"Your internal needs (0-100): hunger {values.get('hunger', '?')}, "
