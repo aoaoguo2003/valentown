@@ -408,10 +408,10 @@ function buildHomeNavEdges() {
 
 let gameConfig = {
     type: Phaser.AUTO,
-    width: VIEW_W,
+    width: WORLD_W,   // canvas matches the town's true size; coords use UNIT, not config
     height: WORLD_H,
     parent: 'game-container',
-    backgroundColor: '#cce6ff',  // fills the band above/below the zoomed-out town
+    backgroundColor: '#cce6ff',  // fills any small letterbox band around the map
     scene: { preload, create, update },
     scale: {
         mode: Phaser.Scale.FIT,
@@ -1018,13 +1018,10 @@ function create() {
     // 背景
     currentBackground = this.add.tileSprite(0, 0, WORLD_W, WORLD_H, 'background').setOrigin(0).setDepth(-1);
     this.cameras.main.setBounds(0, 0, WORLD_W, WORLD_H);
-    // Zoom out so the whole town width is visible at once (no horizontal scroll).
-    this.cameras.main.setZoom(VIEW_W / WORLD_W);
-    this.cameras.main.centerOn(WORLD_W / 2, WORLD_H / 2);
     drawTownPaths(this);
 
-    let wR = this.sys.game.config.width / 160;
-    let hR = this.sys.game.config.height / 90;
+    let wR = UNIT;
+    let hR = UNIT;
 
     // 场所图标
     this.add.image(17 * wR, 15 * hR, 'house1').setScale(0.3);
@@ -1507,8 +1504,8 @@ function getNodePixel(scene, nodeName) {
         return null;
     }
 
-    const wR = scene.sys.game.config.width / 160;
-    const hR = scene.sys.game.config.height / 90;
+    const wR = UNIT;
+    const hR = UNIT;
     return { x: node.x * wR, y: node.y * hR };
 }
 
@@ -2225,8 +2222,8 @@ function applyAgentProgressSnapshot(scene, config) {
         } else {
             const coords = getLocationCoords(agentLocations[agentName]);
             if (coords) {
-                const wR = scene.sys.game.config.width / 160;
-                const hR = scene.sys.game.config.height / 90;
+                const wR = UNIT;
+                const hR = UNIT;
                 agent.x = coords.x * wR;
                 agent.y = coords.y * hR;
             }
@@ -2831,8 +2828,8 @@ function getSleepPoseCoords(scene, agentName) {
     }
 
     const offset = sleepPoseOverrides[agentName] || {};
-    const wR = scene.sys.game.config.width / 160;
-    const hR = scene.sys.game.config.height / 90;
+    const wR = UNIT;
+    const hR = UNIT;
 
     return {
         x: (coords.x + (offset.x || 0)) * wR,
@@ -2892,8 +2889,8 @@ function moveAgentToInitialPosition(agentName, targetLocation) {
         return;
     }
 
-    const wR = this.sys.game.config.width / 160;
-    const hR = this.sys.game.config.height / 90;
+    const wR = UNIT;
+    const hR = UNIT;
     const tx = initialLocation.x * wR;
     const ty = initialLocation.y * hR;
 
@@ -2950,8 +2947,8 @@ function moveAgentToSleepPosition(scene, agentName) {
         return;
     }
 
-    const wR = scene.sys.game.config.width / 160;
-    const hR = scene.sys.game.config.height / 90;
+    const wR = UNIT;
+    const hR = UNIT;
 
     state.goingToBed = true;
     setAgentPose(agentName, 'stand');
@@ -2994,8 +2991,8 @@ function resetAgentToSleepPosition(scene, agentName) {
         return;
     }
 
-    const wR = scene.sys.game.config.width / 160;
-    const hR = scene.sys.game.config.height / 90;
+    const wR = UNIT;
+    const hR = UNIT;
     agent.x = coords.x * wR;
     agent.y = coords.y * hR;
     agent.isMoving = false;
@@ -3026,8 +3023,8 @@ function placeAgentAtLocation(scene, agentName, locationName, pose = null) {
         return;
     }
 
-    const wR = scene.sys.game.config.width / 160;
-    const hR = scene.sys.game.config.height / 90;
+    const wR = UNIT;
+    const hR = UNIT;
     agent.x = coords.x * wR;
     agent.y = coords.y * hR;
     agent.isMoving = false;
@@ -3141,8 +3138,8 @@ function moveAgent(agentName, targetLocation, day) {
         coords = coords[k];
     }
 
-    const wR = this.sys.game.config.width / 160;
-    const hR = this.sys.game.config.height / 90;
+    const wR = UNIT;
+    const hR = UNIT;
     const tx = coords.x * wR;
     const ty = coords.y * hR;
 
@@ -3682,8 +3679,8 @@ function startUnifiedNight(scene) {
 }
 
 function findWalkablePath(startX, startY, targetX, targetY, sourceLocation, targetLocation) {
-    const wR = gameScene.sys.game.config.width / 160;
-    const hR = gameScene.sys.game.config.height / 90;
+    const wR = UNIT;
+    const hR = UNIT;
     const sourceNode = locationToNode[sourceLocation] || (navNodes[sourceLocation] ? sourceLocation : null);
     const targetNode = locationToNode[targetLocation] || (navNodes[targetLocation] ? targetLocation : null);
 
