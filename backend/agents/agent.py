@@ -1,4 +1,5 @@
 from llm import LLMClient
+from observability import trace_operation
 
 HOME_AREAS = [
     "Ron_home",
@@ -105,21 +106,28 @@ class Agent:
         first_name = self.name.split(" ")[0]
         return f"{first_name}_home"
 
-    def update_memory(self, new_memory, category="action", importance=4, life_day=None):
-        """Add a new memory to this agent's own rolling memory bank."""
+    def update_memory(self, new_memory, category="action", importance=None, life_day=None, fallback_importance=4):
+        """Add a new memory to this agent's own rolling memory bank.
+
+        When ``importance`` is not given, the LLM rates the memory's poignancy
+        (1-10) so routine actions land low and meaningful moments land high,
+        falling back to ``fallback_importance`` if the LLM is unavailable."""
         full_memory = f"{self.name}: {new_memory}"
+        if importance is None:
+            importance = self.llm.rate_importance(self.name, full_memory, fallback=fallback_importance)
         self.memory.add_memory(full_memory, category, importance, agent_name=self.name, life_day=life_day)
 
     def record_completed_action(self, action_text, location, life_day=None):
         """Persist a finished action so future decisions can build on it."""
         if not action_text:
             return
-        self.update_memory(
-            f"Did '{action_text}' at {location}.",
-            category="action",
-            importance=4,
-            life_day=life_day
-        )
+        with trace_operation("action_memory", self.name):
+            self.update_memory(
+                f"Did '{action_text}' at {location}.",
+                category="action",
+                life_day=life_day,
+                fallback_importance=3
+            )
 
     def _recent_memory_context(self, limit=12):
         records = self.memory.get_memories(agent_name=self.name)[:limit]
@@ -181,13 +189,14 @@ class Agent:
             "required": ["action", "destination", "duration_minutes", "talk_to"]
         }
 
-        decision = self.llm.call_tool(
-            self.name,
-            context,
-            tool_name="choose_next_action",
-            tool_description="Choose the single next action for this resident.",
-            parameters=parameters
-        )
+        with trace_operation("decision", self.name):
+            decision = self.llm.call_tool(
+                self.name,
+                context,
+                tool_name="choose_next_action",
+                tool_description="Choose the single next action for this resident.",
+                parameters=parameters
+            )
 
         validated = self._validate_decision(decision)
         if validated:
@@ -268,41 +277,48 @@ class Agent:
         partner; both sides remember the conversation."""
         self.memory.set_life_day(day_number or 1)
 
-        question_context = (
-            f"You are {self.name}, talking to {target_agent.name} at {location}.\n"
-            f"Your recent memories:\n{self._recent_memory_context(limit=8)}\n"
-            "Use plain English only. "
-            f"Just act as {self.name} ({self.age} years old) and say one line of about 10 words. "
-            "Do not describe actions."
-        )
-        question = self.llm.get_response(self.name, question_context)
-        if not question:
-            return None
+        with trace_operation("dialogue", self.name):
+            question_context = (
+                f"You are {self.name}, talking to {target_agent.name} at {location}.\n"
+                f"Your recent memories:\n{self._recent_memory_context(limit=8)}\n"
+                "Use plain English only. "
+                f"Just act as {self.name} ({self.age} years old) and say one line of about 10 words. "
+                "Do not describe actions."
+            )
+            question = self.llm.get_response(self.name, question_context)
+            if not question:
+                return None
 
-        answer_context = (
-            f"You are {target_agent.name}, answering {self.name} at {location}.\n"
-            f"They just said: {question}\n"
-            "Use plain English only. "
-            f"Just act as {target_agent.name} ({target_agent.age} years old) and reply in about 10 words. "
-            "Do not describe actions."
-        )
-        answer = target_agent.llm.get_response(target_agent.name, answer_context)
-        if not answer:
-            return None
+            answer_context = (
+                f"You are {target_agent.name}, answering {self.name} at {location}.\n"
+                f"They just said: {question}\n"
+                "Use plain English only. "
+                f"Just act as {target_agent.name} ({target_agent.age} years old) and reply in about 10 words. "
+                "Do not describe actions."
+            )
+            answer = target_agent.llm.get_response(target_agent.name, answer_context)
+            if not answer:
+                return None
 
-        # 保存双向记忆
-        self.update_memory(
-            f"Talked to {target_agent.name} at {location}: \"{question}\"",
-            category="communication",
-            importance=7,
-            life_day=day_number
-        )
-        target_agent.update_memory(
-            f"Replied to {self.name} at {location}: \"{answer}\"",
-            category="communication",
-            importance=7,
-            life_day=day_number
-        )
+            # 保存双向记忆：对整段对话评一次重要性，双方共用，省一次 LLM 调用
+            convo_importance = self.llm.rate_importance(
+                self.name,
+                f"{self.name} and {target_agent.name} talked at {location}: "
+                f"\"{question}\" / \"{answer}\"",
+                fallback=6
+            )
+            self.update_memory(
+                f"Talked to {target_agent.name} at {location}: \"{question}\"",
+                category="communication",
+                importance=convo_importance,
+                life_day=day_number
+            )
+            target_agent.update_memory(
+                f"Replied to {self.name} at {location}: \"{answer}\"",
+                category="communication",
+                importance=convo_importance,
+                life_day=day_number
+            )
 
         return {
             "initiator": self.name,

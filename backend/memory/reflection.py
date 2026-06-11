@@ -1,5 +1,6 @@
 from llm import LLMClient
 from memory.memory_system import ReflectionRecord
+from observability import trace_operation
 
 
 class Reflection:
@@ -34,13 +35,14 @@ class Reflection:
             "Generate 3 significant high-level questions about this agent's motives, relationships, or routines. "
             "Use plain English only. Return only the 3 questions."
         )
-        questions = self.llm.get_response(self.agent_name, question_context)
+        with trace_operation("reflection", self.agent_name):
+            questions = self.llm.get_response(self.agent_name, question_context)
 
-        reflection_context = (
-            f"Answer these high-level questions using only {self.agent_name}'s recent rolling memories:\n{questions}\n"
-            "Return 3 concise insights. Use plain English only."
-        )
-        answer = self.llm.get_response(self.agent_name, reflection_context)
+            reflection_context = (
+                f"Answer these high-level questions using only {self.agent_name}'s recent rolling memories:\n{questions}\n"
+                "Return 3 concise insights. Use plain English only."
+            )
+            answer = self.llm.get_response(self.agent_name, reflection_context)
 
         print(f"{self.agent_name} is thinking:\n")
         print(answer, "\n")

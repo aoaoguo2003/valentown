@@ -16,6 +16,7 @@ npm-debug.log*
 
 # Runtime output
 *.log
+backend/logs/
 backend/simulation_progress.json
 backend/conversations.json
 backend/memory_data.json
