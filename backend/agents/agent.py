@@ -1,5 +1,6 @@
 from llm import LLMClient
 from observability import trace_operation
+from retrieval import retriever
 
 HOME_AREAS = [
     "Ron_home",
@@ -129,11 +130,19 @@ class Agent:
                 fallback_importance=3
             )
 
-    def _recent_memory_context(self, limit=12):
-        records = self.memory.get_memories(agent_name=self.name)[:limit]
+    def _recent_memory_context(self, query, limit=12):
+        """Retrieve the memories most relevant to ``query`` via three-factor
+        scoring (recency x importance x relevance), formatted as a bullet list."""
+        records = self.memory.get_memories(agent_name=self.name)
         if not records:
             return "No recent memories."
-        return "\n".join(f"- {record.content}" for record in records)
+        top = retriever.retrieve(
+            records,
+            query=query,
+            current_day=self.memory.current_life_day,
+            top_k=limit,
+        )
+        return "\n".join(f"- {record.content}" for record in top) if top else "No recent memories."
 
     def decide_next_action(self, internal_state, triggers, day_number, time_text, current_location, last_action=None):
         """Pick the next action via a forced function call; fall back to the
@@ -148,6 +157,13 @@ class Agent:
         ) or "- No urgent needs right now."
         last_action_text = last_action or "Just woke up; nothing done yet today."
 
+        retrieval_query = (
+            f"At {current_location}, {time_text}. "
+            f"Needs - hunger {values.get('hunger', '?')}, energy {values.get('energy', '?')}, "
+            f"social {values.get('social', '?')}. {trigger_lines} "
+            f"Just finished: {last_action_text}"
+        )
+
         context = (
             f"It is day {day_number}, {time_text} in Valentown. "
             f"Here is a basic description of you: {self.character_description.strip()}\n"
@@ -156,7 +172,7 @@ class Agent:
             f"Your internal needs (0-100): hunger {values.get('hunger', '?')}, "
             f"energy {values.get('energy', '?')}, social {values.get('social', '?')}.\n"
             f"Active need triggers:\n{trigger_lines}\n"
-            f"Your recent memories:\n{self._recent_memory_context()}\n"
+            f"Your recent memories:\n{self._recent_memory_context(retrieval_query)}\n"
             "Decide the single next thing you will do. Satisfy urgent needs first; "
             "otherwise act in character and vary your day. Use plain English only."
         )
@@ -280,7 +296,7 @@ class Agent:
         with trace_operation("dialogue", self.name):
             question_context = (
                 f"You are {self.name}, talking to {target_agent.name} at {location}.\n"
-                f"Your recent memories:\n{self._recent_memory_context(limit=8)}\n"
+                f"Your recent memories:\n{self._recent_memory_context(f'Talking to {target_agent.name} at {location}', limit=8)}\n"
                 "Use plain English only. "
                 f"Just act as {self.name} ({self.age} years old) and say one line of about 10 words. "
                 "Do not describe actions."
