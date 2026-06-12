@@ -2702,14 +2702,20 @@ function showStatusEmoji(scene, agentName, locationName, actionText = '') {
     );
     const x = position.x;
     const y = position.y;
+    const placeBelow = y > agent.y;  // bubble sits below the agent (agent near the top)
     const bubbleBg = scene.add.graphics();
     bubbleBg.fillStyle(0xffffff, 0.9);
     bubbleBg.lineStyle(2, 0xaaaaaa, 1);
     bubbleBg.fillRoundedRect(-26, -18, 52, 36, 8);
     bubbleBg.strokeRoundedRect(-26, -18, 52, 36, 8);
-    // Triangular tail pointing down at the agent, matching the speech bubble.
-    bubbleBg.fillTriangle(-4, 18, 4, 18, 0, 26);
-    bubbleBg.strokeTriangle(-4, 18, 4, 18, 0, 26);
+    // Tail points at the agent: up when the bubble is below it, down otherwise.
+    if (placeBelow) {
+        bubbleBg.fillTriangle(-4, -18, 4, -18, 0, -26);
+        bubbleBg.strokeTriangle(-4, -18, 4, -18, 0, -26);
+    } else {
+        bubbleBg.fillTriangle(-4, 18, 4, 18, 0, 26);
+        bubbleBg.strokeTriangle(-4, 18, 4, 18, 0, 26);
+    }
 
     const bubbleText = scene.add.text(0, -1, emoji, {
         font: '22px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", Arial',
