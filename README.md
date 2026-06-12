@@ -16,9 +16,9 @@ English · [简体中文](README.zh-CN.md)
 
 Valentown is a small, self-contained **generative-agent simulation**. Seven residents live in a shared town: they wake and sleep on their own rhythms, feel hunger / energy / social needs that change over time, walk through doorways to kitchens, shops, the park and the café, hold short conversations, accumulate memories, reflect each night, and let those reflections reshape how they behave the next day.
 
-It is built as a study of **how to engineer an LLM agent that holds up in practice** — not a chatbot wrapper. Every moving part that a production agent needs is here in miniature and working end to end:
+It is built as a study of **how to engineer an LLM agent that holds up in practice**. Every moving part that a production agent needs is here and working end to end:
 
-- structured decisions via **forced function calling** (no fragile text parsing),
+- structured decisions via **forced function calling**,
 - a **deterministic fallback** so the simulation never stalls when the LLM is down,
 - **memory** with LLM-judged importance and **three-factor retrieval** (recency × importance × relevance),
 - a **reflection → evolving persona → behaviour** loop,
