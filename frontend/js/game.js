@@ -427,7 +427,8 @@ let gameConfig = {
 const game = new Phaser.Game(gameConfig);
 
 // Fit the canvas to the reserved map area once the page has laid out.
-window.addEventListener('load', () => game.scale.refresh());
+// (Guarded so the headless smoke test, which mocks `window`, can load this file.)
+window.addEventListener?.('load', () => game.scale.refresh());
 
 function preload() {
     // 加载所有资源
@@ -3445,11 +3446,15 @@ function maybeStartDecisionConversation(scene, agentName) {
     conversationsInProgress[agentName] = true;
     conversationsInProgress[targetName] = true;
 
+    const releaseConversationLock = () => {
+        conversationsInProgress[agentName] = false;
+        conversationsInProgress[targetName] = false;
+    };
+
     fetchConversation(agentName, targetName, myArea).then(data => {
         const convo = data?.conversation;
         if (!convo) {
-            conversationsInProgress[agentName] = false;
-            conversationsInProgress[targetName] = false;
+            releaseConversationLock();
             return;
         }
 
@@ -3460,11 +3465,11 @@ function maybeStartDecisionConversation(scene, agentName) {
         schedule(scene, 2200, () => {
             showStatusEmoji(scene, convo.responder, agentLocations[convo.responder], 'chat');
             syncAgentActionState(convo.responder, agentLocations[convo.responder], 'chat', { social_contact: true });
-            showAgentSpeech.call(scene, convo.responder, convo.answer, () => {
-                conversationsInProgress[agentName] = false;
-                conversationsInProgress[targetName] = false;
-            });
+            showAgentSpeech.call(scene, convo.responder, convo.answer, releaseConversationLock);
         });
+        // Failsafe: always release the lock even if a speech bubble is interrupted
+        // before its onComplete fires, so the two agents can never deadlock.
+        schedule(scene, 12000, releaseConversationLock);
         updateUi();
     });
 }
