@@ -1,52 +1,59 @@
+<div align="center">
+
 # Valentown
 
-Valentown is an LLM-driven multi-agent virtual society simulation. Seven
-residents maintain wake/sleep rhythms, move through a shared town, interact
-with one another, accumulate memories, and adapt their behaviour from
-persistent internal state.
+**An LLM-driven multi-agent virtual town — seven residents who decide, remember, reflect, and talk on their own.**
 
-Agents are **need-driven**: instead of generating a fixed daily plan each
-morning, every agent decides its next action only after finishing the previous
-one. Each decision is a structured LLM function call grounded in the agent's
-current hunger/energy/social needs, its rolling memories, and what it just
-did — with deterministic fallback rules so the simulation never stalls when
-the LLM is unavailable.
+English · [简体中文](README.zh-CN.md)
 
-The project combines a Flask simulation backend with a Phaser-based visual
-client. The LLM (DeepSeek by default, any OpenAI-compatible endpoint works) is
-used for next-action decisions, contextual dialogue, and end-of-day
-reflection, while deterministic scheduling and graph-based navigation keep the
-simulation inspectable and reproducible.
+![Valentown screenshot](docs/screenshot.png)
+
+</div>
+
+---
+
+## What is Valentown?
+
+Valentown is a small, self-contained **generative-agent simulation**. Seven residents live in a shared town: they wake and sleep on their own rhythms, feel hunger / energy / social needs that change over time, walk through doorways to kitchens, shops, the park and the café, hold short conversations, accumulate memories, reflect each night, and let those reflections reshape how they behave the next day.
+
+It is built as a study of **how to engineer an LLM agent that holds up in practice** — not a chatbot wrapper. Every moving part that a production agent needs is here in miniature and working end to end:
+
+- structured decisions via **forced function calling** (no fragile text parsing),
+- a **deterministic fallback** so the simulation never stalls when the LLM is down,
+- **memory** with LLM-judged importance and **three-factor retrieval** (recency × importance × relevance),
+- a **reflection → evolving persona → behaviour** loop,
+- **observability** (full-trace logging of every model call) and an **offline evaluation harness**.
+
+The backend is a Flask simulation engine; the frontend is a Phaser town that renders the whole map on one plane and visualizes each resident's needs live.
+
+> Inspired by Stanford's *Generative Agents: Interactive Simulacra of Human Behavior* (Park et al., 2023), re-implemented and engineered from scratch.
+
+---
 
 ## Highlights
 
-- Seven autonomous agents with distinct roles, personalities, goals, homes,
-  and persistent state.
-- **Observe → decide → act loop**: after each completed action the backend is
-  asked for the next one (`/decide_next_action`), passing current needs,
-  active triggers, location, time, and recent memories.
-- **Structured decisions via function calling**: the LLM must fill a typed
-  schema (action, destination enum, duration, conversation partner) instead of
-  free text — no fragile string parsing, and invalid destinations are
-  rejected by construction.
-- **Deterministic fallback rules** (hungry → kitchen, tired → sofa, lonely →
-  park) keep every agent acting when the LLM fails or is not configured.
-- Agent-specific rolling memory banks with a 15-lived-day retention window;
-  completed actions and conversations feed back into future decisions.
-- End-of-day reflection distils recent experience into higher-level insights.
-- Time-dependent hunger, energy, and social needs with configurable thresholds
-  and action effects.
-- A game clock where one in-game hour corresponds to one real-world minute at
-  `1x` speed.
-- Orthogonal graph navigation through indoor anchors, building entrances, and
-  external roads.
-- Collision-aware destination reservation to reduce unnatural overlapping.
-- Persistent simulation time, locations, pixel positions, poses, internal
-  states, conversations, and memories across server restarts.
-- Route visualization, speed controls, collapsible information panels, speech
-  bubbles, activity emoji, sleep poses, and animated walk frames.
-- Temporary player control of any selected agent through `W`, `A`, `S`, and
-  `D`; autonomous decisions pause for that agent until control is released.
+### Agent decision loop
+- **Observe → decide → act.** After finishing each action an agent asks the backend for its next one, grounded in its current needs, active triggers, location, time, and retrieved memories.
+- **Structured output via function calling.** The model must fill a typed schema (`action`, `destination` enum, `duration`, `talk_to`) — invalid destinations are rejected by construction, so there is no free-text parsing.
+- **Deterministic fallback rules** (hungry → kitchen, tired → sofa, lonely → park) keep every agent acting when the LLM fails, is rate-limited, or is not configured at all.
+
+### Memory, retrieval & reflection
+- **Per-agent rolling memory** with a 15-lived-day retention window; completed actions and conversations feed back into future decisions.
+- **LLM-judged importance** — each memory is scored 1–10 for poignancy (a routine meal scores low, a heartfelt talk scores high) instead of a hardcoded constant.
+- **Three-factor retrieval** — memories are ranked by `recency × importance × relevance`, where relevance is cosine similarity over **local embeddings** (fastembed / bge-small, no API key, runs offline). Weights are configurable.
+- **Reflection → persona loop** — each night an agent distils its most identity-relevant memories into an evolving self-description, which is injected back into its decision prompt so reflection actually shapes behaviour.
+
+### Engineering & observability
+- **Full-trace observability** — every LLM call is logged as structured JSONL (trace id, operation, latency, token usage, retries, outcome); calls within one decision share a trace id for end-to-end attribution. `scripts/llm_stats.py` aggregates it by operation and agent.
+- **Offline evaluation harness** — fixed scenarios are run through the decision loop and scored on transparent rubrics (structural validity, whether the chosen destination addresses an active need), with latency and token cost pulled from the trace.
+- **Robust LLM client** — OpenAI-compatible, with exponential-backoff retries, timeouts, and graceful degradation everywhere.
+- **Unit-tested deterministic core** — 23 offline tests covering the clock, need triggers, memory bank, retrieval scoring, persona store, and the fallback decision logic.
+
+### Visualization
+- The **entire town renders on one plane** (no scrolling); residents' three needs are shown as live colour-coded bars (green = satisfied, red = needs attention).
+- Doorway-funnelled navigation, static speech bubbles, activity emoji, sleep poses, animated walking, route inspection, speed controls, and temporary manual control (`W/A/S/D`) of any resident.
+
+---
 
 ## Architecture
 
@@ -54,219 +61,109 @@ simulation inspectable and reproducible.
 flowchart LR
     L["LLM API (OpenAI-compatible)"] --> B["Flask simulation backend"]
     B <--> P["JSON persistence"]
+    B --> O["Observability (JSONL traces)"]
+    B <--> E["Local embeddings (fastembed)"]
     B <--> F["Phaser visual client"]
-    F --> N["Navigation graph and occupancy"]
-    F --> U["Clock, routes, panels, speech and controls"]
 ```
-
-### Decision loop
 
 ```text
-wake up ──► ask /decide_next_action ──► walk to destination ──► act for the
-decided duration ──► report /complete_agent_action (memory + need effects)
-        ▲                                                            │
-        └────────────────────────────────────────────────────────────┘
-                       ... until bedtime, then sleep
+wake up ─► /decide_next_action ─► walk through the door ─► act for the decided
+        ▲   (function call + validation + fallback)          duration
+        │                                                        │
+        └──────────── report /complete_agent_action ◄───────────┘
+                      (memory + need effects)
+        ... at night: /start_new_day ─► reflect ─► update persona
 ```
 
-### Backend
+- **Backend** owns agent definitions, structured next-action decisions, dialogue, nightly reflection, rolling memory + three-factor retrieval, internal-state updates, observability, and persistence.
+- **Frontend** renders the town, advances the clock, drives the per-agent decision state machine, plans doorway-aware routes, and visualizes needs / persona / conversations.
 
-The Python backend owns agent definitions, structured next-action decisions
-(function calling + validation + deterministic fallback), dialogue generation,
-reflection, rolling memory, internal-state updates, and simulation progress
-persistence.
-
-### Frontend
-
-The browser client renders the town and agents, advances the simulation clock,
-drives the per-agent decision state machine, plans orthogonal routes, enforces
-entrance and road rules, animates poses, and exposes inspection and
-manual-control tools.
+---
 
 ## Technology
 
-- Python 3.10+
-- Flask and Flask-CORS
-- OpenAI-compatible chat completions API with function calling
-  (DeepSeek by default)
-- JavaScript
-- Phaser 3
-- Node.js 18+ and `http-server`
+- Python 3.10+, Flask, Flask-CORS
+- OpenAI-compatible chat-completions API with function calling (DeepSeek by default; any compatible endpoint works)
+- `fastembed` (local ONNX embeddings) for memory relevance
+- JavaScript, Phaser 3, Node.js 18+
 - JSON-based local persistence
 
-## Project Structure
+---
+
+## Project structure
 
 ```text
 backend/
-  agents/                  Agent definitions and decision logic
-  memory/                  Rolling memory and reflection system
-  agent_state.py           Hunger, energy, social state, and triggers
-  llm.py                   OpenAI-compatible LLM client (text + tool calls)
-  main.py                  Flask API and simulation orchestration
-  tests/                   Unit tests for the deterministic core
+  agents/agent.py        Agent definitions + need-driven structured decisions + fallback
+  llm.py                 OpenAI-compatible LLM client (text + forced tool calls, retries)
+  observability.py       Structured JSONL tracing of every LLM call
+  retrieval.py           Three-factor memory retrieval with local embeddings
+  memory/
+    memory_system.py     Per-agent rolling memory banks (15-day retention)
+    reflection.py        Nightly reflection -> evolving persona
+    persona_store.py     Per-agent persona persistence
+  agent_state.py         Hunger / energy / social state, thresholds, triggers
+  main.py                Flask API + simulation orchestration
+  eval/                  Offline decision regression harness
+  tests/                 Unit tests for the deterministic core
 frontend/
-  assets/                  Town, building, character, and pose sprites
-  js/game.js               Rendering, navigation, decision loop, and UI logic
-  index.html
-  styles.css
+  js/game.js             Rendering, navigation, decision loop, needs/persona UI
+  index.html, styles.css
 scripts/
-  smoke_24h.js             Schedule and route smoke test
-  generate_walk_sprites.py Walk-frame generation utility
-  start_backend.cmd
-  start_frontend.cmd
+  llm_stats.py           Aggregate the LLM trace by operation / agent
+  smoke_24h.js           Schedule + route smoke test (no LLM calls)
 ```
 
-## Quick Start
+---
 
-### 1. Clone and enter the repository
+## Quick start
 
-```bash
-git clone https://github.com/aoaoguo2003/valentown.git
-cd valentown
-```
-
-### 2. Configure and run the backend
+### 1. Backend
 
 ```bash
 cd backend
 python -m venv .venv
-```
-
-Activate the environment:
-
-```powershell
-# Windows PowerShell
-.\.venv\Scripts\Activate.ps1
-```
-
-```bash
-# macOS or Linux
-source .venv/bin/activate
-```
-
-Install the dependencies:
-
-```bash
+# Windows: .\.venv\Scripts\Activate.ps1   |   macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env        # then set LLM_API_KEY (a DeepSeek key works out of the box)
+python main.py              # serves http://localhost:5000
 ```
 
-Create the local environment file:
+The first run downloads a small local embedding model (~100 MB) for memory relevance. **Without an API key the simulation still runs** on deterministic fallback decisions; the LLM adds personality, dialogue, and reflection.
 
-```powershell
-# Windows PowerShell
-Copy-Item .env.example .env
+`backend/.env` keys:
+
+```ini
+LLM_API_KEY=your_key
+LLM_BASE_URL=https://api.deepseek.com   # any OpenAI-compatible endpoint
+LLM_MODEL=deepseek-chat
 ```
 
-```bash
-# macOS or Linux
-cp .env.example .env
-```
-
-Set `LLM_API_KEY` in `backend/.env` (a DeepSeek key works out of the box;
-point `LLM_BASE_URL`/`LLM_MODEL` at any other OpenAI-compatible service if you
-prefer), then start the API:
-
-```bash
-python main.py
-```
-
-The backend runs at [http://localhost:5000](http://localhost:5000). Without an
-API key the simulation still runs on deterministic fallback decisions; the LLM
-adds personality-driven variety, dialogue, and reflection.
-
-### 3. Run the frontend
-
-Open another terminal:
+### 2. Frontend
 
 ```bash
 cd frontend
 npm install
-npm start
+npm start                   # open http://localhost:8080
 ```
 
-Open [http://localhost:8080](http://localhost:8080).
+Click **Start** to run the simulation. Click any resident card to inspect their needs, current action, self-reflection, and conversations.
 
-On Windows, the two scripts in `scripts/` provide the same startup flow after
-dependencies have been installed.
-
-## Controls
-
-- `Start`: begin or resume the autonomous simulation.
-- `Pause`: pause simulation time and autonomous decisions.
-- `1x`, `2x`, `4x`: adjust simulation speed.
-- Character buttons or sprites: inspect an agent's location, state, current
-  action, destination, and conversation history.
-- `Hide Paths` / `Show Paths`: toggle route visualization.
-- `<name>'s Path`: isolate the selected agent's route.
-- `Control`: pause the selected agent's autonomous decisions and enter manual
-  mode.
-- `W`, `A`, `S`, `D`: move the manually controlled agent.
-- `Release`: return the agent to autonomous decisions from the current state.
-- Map arrows: pan across the extended town.
-
-Manual control has priority over an agent's decisions. When released, the
-agent reconciles with the current game time: during the day it simply asks for
-a fresh decision from wherever it stands; after bedtime it returns home and
-goes to sleep. The agent is never teleported back to a former position.
-
-## Persistence
-
-Runtime state is written beneath `backend/`:
-
-- `simulation_progress.json`: current time, positions, locations, and poses.
-- `conversations.json`: generated conversations by lived day.
-- `agent_internal_states/`: hunger, energy, social values, and time anchors.
-- `memory/agent_memory_banks/`: per-agent memories and reflections.
-
-All mutable progress and memory files are ignored by Git.
-
-## API
-
-Useful endpoints include:
-
-- `GET /get_config`
-- `POST /decide_next_action`
-- `POST /complete_agent_action`
-- `POST /generate_conversation`
-- `POST /start_new_day`
-- `GET /get_conversations?life_day=1`
-- `GET /get_simulation_progress`
-- `POST /update_simulation_progress`
-- `GET /get_agent_internal_state?agent_name=Ron%20Parker`
-- `GET /get_agent_memories?agent_name=Ron%20Parker`
-- `POST /advance_agent_internal_state`
+---
 
 ## Validation
-
-Run the backend unit tests (deterministic core, no LLM calls):
 
 ```bash
 cd backend
 pip install -r requirements-dev.txt
-pytest
+pytest                              # 23 deterministic unit tests (no LLM calls)
+python eval/run_eval.py --repeats 2 # offline decision-quality regression
+python ../scripts/llm_stats.py      # summarise the LLM trace (calls, tokens, latency)
+node ../scripts/smoke_24h.js        # schedule + route smoke test
 ```
 
-Run the JavaScript syntax check:
+---
 
-```bash
-node --check frontend/js/game.js
-```
+## Research scope
 
-Run the schedule and route smoke test from the repository root:
-
-```bash
-node scripts/smoke_24h.js
-```
-
-The smoke test validates the deterministic wake/bed schedules, verifies that
-every destination the backend may choose is routable from every agent's bed
-(and back), and checks the co-location rule that decision-driven conversations
-depend on — all without making LLM requests.
-
-## Research Scope
-
-Valentown is a research prototype for studying the interaction between
-LLM-generated intention, explicit needs, persistent autobiographical memory,
-spatial constraints, and human intervention. The current implementation uses a
-single-process Flask server and JSON persistence; it is intended for local
-experimentation rather than production-scale deployment.
+Valentown is a research prototype for studying the interaction between LLM-generated intention, explicit needs, persistent autobiographical memory, spatial constraints, and human intervention. It runs as a single-process Flask server with JSON persistence — intended for local experimentation, not production-scale deployment.
