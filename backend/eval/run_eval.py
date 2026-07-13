@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""Offline regression harness for the agent decision loop.
+"""智能体决策循环的离线回归测试工具。
 
-Runs a fixed set of scenarios through ``Agent.decide_next_action`` against the
-live LLM and scores each decision on transparent, deterministic rubrics:
+将一组固定场景输入 ``Agent.decide_next_action``，针对真实 LLM 运行，并按照
+透明、确定性的评分标准对每个决策打分：
 
-  * format-valid : the LLM returned a structurally valid decision that passed
-                   validation (source == "llm"); otherwise the deterministic
-                   fallback had to take over.
-  * need-met     : the chosen destination actually addresses the scenario's
-                   dominant need (see RUBRIC below).
+  * format-valid（格式有效）：LLM 返回了结构有效、通过校验的决策
+                   （source == "llm"）；否则说明必须由确定性的
+                   兜底逻辑接管。
+  * need-met     （需求满足）：所选目的地确实解决了该场景中最主要的需求
+                   （参见下面的 RUBRIC）。
 
-It also pulls latency and token usage from the observability trace so effect
-and cost can be tracked together across prompt/model changes.
+它还会从可观测性追踪记录中提取延迟和 token 使用情况，以便在
+prompt/模型变更时能够同时跟踪效果和成本。
 
-Usage:
+用法：
     python backend/eval/run_eval.py [--repeats N] [--cases path/to/cases.json]
 """
 
@@ -27,12 +27,12 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-# Route this run's LLM traces to a dedicated file BEFORE importing modules that
-# read the config at import time, so eval traces stay separate from sim traces.
+# 在导入那些会在导入时读取配置的模块之前，先把本次运行的 LLM 追踪记录
+# 指向一个专用文件，这样评测（eval）追踪就能和模拟（sim）追踪分开。
 EVAL_TRACE = BACKEND_DIR / "logs" / "eval_trace.jsonl"
 os.environ["LLM_TRACE_FILE"] = str(EVAL_TRACE)
 
-from agents.agent import (  # noqa: E402  (import after env is set)
+from agents.agent import (  # noqa: E402  （在设置好环境变量之后再导入）
     ALLOWED_DESTINATIONS,
     MAX_ACTION_MINUTES,
     MIN_ACTION_MINUTES,
@@ -40,7 +40,7 @@ from agents.agent import (  # noqa: E402  (import after env is set)
 import agents.agent as agent_module  # noqa: E402
 from memory.memory_system import MemorySystem  # noqa: E402
 
-# --- Scoring rubric (deterministic, transparent so it can be critiqued) ------
+# --- 评分标准（确定性、透明，便于审查）------
 FOOD_ROOMS = {"Kitchen", "Dining_table", "Dinning_room"}
 FOOD_AREAS = {"Supermarket", "Café_bar"}
 REST_ROOMS = {"Sofa", "Reading_chair", "Chair", "Living_room", "Porch", "Window", "Bookshelf"}
@@ -53,9 +53,9 @@ RUBRIC = {
     "none": "any structurally valid action counts (no urgent need to satisfy)",
 }
 
-# Aggregation rule: when several needs are triggered at once, addressing ANY one
-# of them counts as a satisfied decision. A real person can sensibly eat before
-# sleeping (or vice versa); order between equally-pressing needs is not scored.
+# 聚合规则：当多个需求同时被触发时，只要满足其中任意一个即视为决策合格。
+# 现实中一个人完全可以先吃饭再睡觉（反之亦然）；对于同等紧迫的需求，
+# 不对其先后顺序进行评分。
 AGGREGATION_NOTE = "met = decision satisfies AT LEAST ONE actively-triggered need (any order); empty triggers => any valid action"
 
 
@@ -76,12 +76,12 @@ def need_satisfied(need, decision):
         return area.endswith("_home") and room in REST_ROOMS
     if need == "social":
         return area in PUBLIC_AREAS or decision.get("talk_to", "nobody") != "nobody"
-    return True  # "none": any valid action is acceptable
+    return True  # "none"：任何有效动作都可以接受
 
 
 def decision_meets_case(triggered_needs, decision):
-    """A decision is satisfactory if it addresses ANY actively-triggered need;
-    with no triggered needs, any structurally valid action is fine."""
+    """只要决策满足任意一个已激活触发的需求即为合格；
+    如果没有被触发的需求，则任何结构有效的动作都算合格。"""
     if not triggered_needs:
         return True
     return any(need_satisfied(need, decision) for need in triggered_needs)
@@ -134,16 +134,16 @@ def load_decision_traces():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repeats", type=int, default=1, help="runs per case")
+    parser.add_argument("--repeats", type=int, default=1, help="每个用例运行的次数")
     parser.add_argument("--cases", default=str(Path(__file__).with_name("cases.json")))
     args = parser.parse_args()
 
-    # Keep non-ASCII anchors (e.g. "Café_bar") readable on Windows consoles.
+    # 确保非 ASCII 锚点名称（例如 "Café_bar"）在 Windows 控制台上可正常显示。
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
     EVAL_TRACE.parent.mkdir(parents=True, exist_ok=True)
-    EVAL_TRACE.write_text("", encoding="utf-8")  # fresh trace for this run
+    EVAL_TRACE.write_text("", encoding="utf-8")  # 为本次运行清空追踪文件
 
     with open(args.cases, encoding="utf-8") as file:
         cases = json.load(file)
@@ -192,7 +192,7 @@ def main():
                 f"{'OK' if fmt_ok else 'BAD':<5}{'OK' if met else 'MISS':<5}"
             )
 
-    # Attach latency/tokens from the trace (decision calls are sequential).
+    # 从追踪记录中附加延迟/token 信息（决策调用是按顺序进行的）。
     traces = load_decision_traces()
     for result, trace in zip(results, traces):
         result["latency_ms"] = trace.get("latency_ms")

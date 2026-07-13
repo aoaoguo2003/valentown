@@ -69,16 +69,16 @@ AGENT_NAMES = [
     "Arthur Morgan",
 ]
 
-# Decision bounds for one action, in game minutes.
+# 单次动作的决策边界，单位为游戏内分钟。
 MIN_ACTION_MINUTES = 15
 MAX_ACTION_MINUTES = 180
 DEFAULT_ACTION_MINUTES = 60
 
 
 def build_allowed_destinations():
-    """Every navigable anchor an agent may pick as a destination. Bedrooms and
-    toilets are deliberately absent from HOME_ROOM_LOCATIONS, so privacy rules
-    are enforced by construction instead of by prompt instructions."""
+    """代理可选择的所有可导航目的地锚点。卧室和洗手间被特意排除在
+    HOME_ROOM_LOCATIONS 之外，因此隐私规则是通过结构设计来强制保证的，
+    而不是依靠 prompt 指令来约束。"""
     home_locations = [
         f"{home_area}.{room_name}"
         for home_area in HOME_AREAS
@@ -96,7 +96,7 @@ class Agent:
         self.age = age                  # 代理年龄
         self.role = role                # 在村庄中的角色（如父亲、教师等）
         self.personality = personality  # 个性描述（如热心、内向等）
-        self.goals = goals              # goals of agents
+        self.goals = goals              # 代理的目标
         self.memory = memory            # 记忆系统对象（支持反思、持久化）
         self.location = location        # 初始位置
         self.current_location = location  # 当前所在位置（随决策更新）
@@ -109,18 +109,18 @@ class Agent:
         return f"{first_name}_home"
 
     def update_memory(self, new_memory, category="action", importance=None, life_day=None, fallback_importance=4):
-        """Add a new memory to this agent's own rolling memory bank.
+        """将一条新记忆添加到该代理自身的滚动记忆库中。
 
-        When ``importance`` is not given, the LLM rates the memory's poignancy
-        (1-10) so routine actions land low and meaningful moments land high,
-        falling back to ``fallback_importance`` if the LLM is unavailable."""
+        当未提供 ``importance`` 时，由 LLM 对该记忆的深刻程度打分
+        （1-10 分），使日常琐事得分较低、而有意义的时刻得分较高；
+        若 LLM 不可用，则回退使用 ``fallback_importance``。"""
         full_memory = f"{self.name}: {new_memory}"
         if importance is None:
             importance = self.llm.rate_importance(self.name, full_memory, fallback=fallback_importance)
         self.memory.add_memory(full_memory, category, importance, agent_name=self.name, life_day=life_day)
 
     def record_completed_action(self, action_text, location, life_day=None):
-        """Persist a finished action so future decisions can build on it."""
+        """持久化一个已完成的动作，以便未来的决策可以基于它来展开。"""
         if not action_text:
             return
         with trace_operation("action_memory", self.name):
@@ -132,8 +132,8 @@ class Agent:
             )
 
     def _recent_memory_context(self, query, limit=12):
-        """Retrieve the memories most relevant to ``query`` via three-factor
-        scoring (recency x importance x relevance), formatted as a bullet list."""
+        """通过三因子评分（新近度 x 重要性 x 相关性）检索与 ``query``
+        最相关的记忆，并格式化为项目符号列表。"""
         records = self.memory.get_memories(agent_name=self.name)
         if not records:
             return "No recent memories."
@@ -146,9 +146,9 @@ class Agent:
         return "\n".join(f"- {record.content}" for record in top) if top else "No recent memories."
 
     def decide_next_action(self, internal_state, triggers, day_number, time_text, current_location, last_action=None):
-        """Pick the next action via a forced function call; fall back to the
-        deterministic need-driven rules whenever the LLM is unavailable or
-        returns an invalid destination."""
+        """通过强制的函数调用（function call）来选取下一个动作；当 LLM
+        不可用或返回了无效的目的地时，回退使用确定性的、由需求驱动的
+        规则。"""
         self.memory.set_life_day(day_number or 1)
 
         values = (internal_state or {}).get("values", {})
@@ -229,8 +229,8 @@ class Agent:
         return fallback
 
     def _validate_decision(self, decision):
-        """Defensive validation of the tool-call output; returns a normalized
-        decision dict or None when the structure cannot be trusted."""
+        """对 tool-call 的输出进行防御性校验；返回一个规范化后的
+        决策字典，若结构不可信则返回 None。"""
         if not isinstance(decision, dict):
             return None
 
@@ -260,8 +260,8 @@ class Agent:
         }
 
     def fallback_next_action(self, triggers):
-        """Deterministic need-driven rules used when the LLM is unavailable,
-        so the simulation never stalls."""
+        """当 LLM 不可用时使用的确定性、由需求驱动的规则，
+        以确保模拟过程不会停滞。"""
         top_trigger = (triggers or [None])[0]
         need = top_trigger.get("need") if isinstance(top_trigger, dict) else None
 
@@ -294,8 +294,8 @@ class Agent:
         }
 
     def talk_with(self, target_agent, day_number, location):
-        """Generate a short two-line exchange with an explicitly chosen
-        partner; both sides remember the conversation."""
+        """与明确选定的对话对象生成一段简短的两句问答；
+        对话双方都会记住这次交流。"""
         self.memory.set_life_day(day_number or 1)
 
         with trace_operation("dialogue", self.name):

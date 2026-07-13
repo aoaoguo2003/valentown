@@ -1,18 +1,17 @@
-"""Stanford-style three-factor memory retrieval.
+"""斯坦福风格的三因子记忆检索。
 
-Ranks an agent's memories for a given situation by combining three signals,
-each min-max normalised across the candidate pool and then weighted:
+针对给定情境，通过组合三个信号来为 agent 的记忆排序，每个信号都会先在
+候选池中做 min-max 归一化，再按权重加总：
 
     score = w_recency * recency + w_importance * importance + w_relevance * relevance
 
-  * recency   : exponential decay over lived days since the memory was formed.
-  * importance: the LLM-judged poignancy stored on each memory (1-10).
-  * relevance : cosine similarity between the memory and the current query,
-                using local embeddings (fastembed, BAAI/bge-small-en-v1.5).
+  * recency（近因性）：自记忆形成以来经过的天数的指数衰减。
+  * importance（重要性）：每条记忆上由 LLM 判定并存储的重要程度评分（1-10）。
+  * relevance（相关性）：记忆内容与当前查询之间的余弦相似度，
+                使用本地 embedding 模型计算（fastembed，BAAI/bge-small-en-v1.5）。
 
-Embeddings are computed locally and cached by memory content. If the embedding
-model cannot be loaded, retrieval degrades gracefully to plain recency order so
-the simulation never depends on it.
+Embedding 在本地计算，并按记忆内容做缓存。如果 embedding 模型无法加载，
+检索会优雅降级为按近因性排序，确保模拟不会对其产生硬依赖。
 """
 
 import math
@@ -37,8 +36,8 @@ def _cosine(a, b):
 
 
 def _minmax(values):
-    """Normalise to [0, 1]; a constant factor maps to a neutral 0.5 so it does
-    not distort the ranking."""
+    """归一化到 [0, 1] 区间；如果所有值都相同，则统一映射为中性值 0.5，
+    以避免影响排序结果。"""
     lo, hi = min(values), max(values)
     if hi - lo < 1e-9:
         return [0.5 for _ in values]
@@ -46,10 +45,10 @@ def _minmax(values):
 
 
 class FastEmbedder:
-    """Lazily-loaded local embedder with a content-keyed cache.
+    """按需惰性加载的本地 embedder，并带有以内容为键的缓存。
 
-    The model is only loaded on first real embed call, so importing this module
-    (and running offline unit tests) never downloads or loads anything."""
+    模型只有在第一次真正调用 embed 时才会被加载，因此仅导入本模块
+    （例如运行离线单元测试时）不会触发任何下载或加载行为。"""
 
     def __init__(self, model_name=EMBED_MODEL):
         self.model_name = model_name
@@ -66,7 +65,7 @@ class FastEmbedder:
             from fastembed import TextEmbedding
             self._model = TextEmbedding(self.model_name)
             return True
-        except Exception as error:  # noqa: BLE001 - any load failure degrades gracefully
+        except Exception as error:  # noqa: BLE001 - 任何加载失败都应优雅降级
             print(f"Embedder unavailable ({error}); retrieval falls back to recency.")
             self._unavailable = True
             return False
@@ -75,7 +74,7 @@ class FastEmbedder:
         return self._ensure_model()
 
     def embed_docs(self, texts):
-        """Embed memory contents, caching by text. Returns vectors or None."""
+        """对记忆内容做 embedding，并按文本缓存。返回向量列表，或在失败时返回 None。"""
         missing = [text for text in texts if text not in self._cache]
         if missing:
             if not self._ensure_model():
@@ -85,7 +84,7 @@ class FastEmbedder:
         return [self._cache[text] for text in texts]
 
     def embed_query(self, text):
-        """Embed a one-off situational query (not cached). Returns a vector or None."""
+        """对一次性的情境查询做 embedding（不缓存）。返回一个向量，或在失败时返回 None。"""
         if not self._ensure_model():
             return None
         vector = next(iter(self._model.embed([text])))
@@ -106,11 +105,11 @@ class MemoryRetriever:
         self.decay = decay
 
     def _recency_fallback(self, records, top_k):
-        # Records arrive already sorted newest-first from get_memories().
+        # records 从 get_memories() 传入时已经按最新优先的顺序排好。
         return list(records[:top_k])
 
     def retrieve(self, records, query, current_day, top_k=12):
-        """Return the top_k records most relevant to ``query`` for ``current_day``."""
+        """返回与 ``query`` 在 ``current_day`` 情境下最相关的 top_k 条记录。"""
         if not records:
             return []
         if not RETRIEVAL_ENABLED or not self.embedder.available():
@@ -141,10 +140,10 @@ class MemoryRetriever:
             )
             scored.append((score, record))
 
-        # Stable sort: ties keep the incoming newest-first order.
+        # 稳定排序：分数相同的记录保持传入时的最新优先顺序。
         scored.sort(key=lambda pair: pair[0], reverse=True)
         return [record for _, record in scored[:top_k]]
 
 
-# Shared singleton: one embedder/model and cache for the whole process.
+# 共享单例：整个进程使用同一个 embedder/模型实例和缓存。
 retriever = MemoryRetriever()

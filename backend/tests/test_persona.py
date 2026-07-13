@@ -1,4 +1,4 @@
-"""Unit tests for the per-agent persona store (offline, no LLM)."""
+"""按智能体隔离的人设存储的单元测试（离线，不涉及 LLM）。"""
 
 from memory.persona_store import PersonaStore
 
@@ -13,7 +13,7 @@ def test_set_then_get_roundtrip_and_persists(tmp_path):
     store.set("Ron Parker", "  Ron is a warm shopkeeper who values his customers.  ", life_day=3)
     assert store.get("Ron Parker") == "Ron is a warm shopkeeper who values his customers."
 
-    # A fresh store over the same directory reads the persisted value.
+    # 在同一目录上新建一个存储实例，也能读到已持久化的值。
     reopened = PersonaStore(persona_dir=tmp_path)
     assert reopened.get("Ron Parker") == "Ron is a warm shopkeeper who values his customers."
 

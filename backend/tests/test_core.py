@@ -1,6 +1,5 @@
-"""Unit tests for the deterministic core: clock parsing, need triggers, the
-agent-specific rolling memory bank, and the need-driven decision fallback.
-These run without any LLM calls."""
+"""确定性核心逻辑的单元测试：时钟解析、需求触发、按智能体隔离的滚动记忆库，
+以及由需求驱动的决策兜底逻辑。这些测试不涉及任何 LLM 调用。"""
 
 from agent_state import (
     DEFAULT_STATE,
@@ -15,10 +14,10 @@ from memory.memory_system import MemorySystem, ReflectionRecord
 
 def test_parse_clock_to_minutes_handles_am_pm_and_noon_midnight():
     assert parse_clock_to_minutes("6:30 AM") == 6 * 60 + 30
-    assert parse_clock_to_minutes("12:00 AM") == 0          # midnight
-    assert parse_clock_to_minutes("12:00 PM") == 12 * 60    # noon
+    assert parse_clock_to_minutes("12:00 AM") == 0          # 午夜
+    assert parse_clock_to_minutes("12:00 PM") == 12 * 60    # 正午
     assert parse_clock_to_minutes("9 PM") == 21 * 60
-    assert parse_clock_to_minutes("garbage") == 6 * 60      # safe fallback
+    assert parse_clock_to_minutes("garbage") == 6 * 60      # 安全兜底值
 
 
 def test_to_game_minute_offsets_by_day():
@@ -41,7 +40,7 @@ def test_evaluate_triggers_fires_and_sorts_by_priority():
     triggers = evaluate_agent_triggers(state)
     needs = [trigger["need"] for trigger in triggers]
     assert set(needs) == {"hunger", "energy", "social"}
-    # energy (priority 90) outranks hunger (80) outranks social (65).
+    # energy（优先级 90）高于 hunger（80），hunger 又高于 social（65）。
     assert needs == ["energy", "hunger", "social"]
 
 
@@ -65,7 +64,7 @@ def test_memory_bank_roundtrip_and_agent_isolation(tmp_path):
     ron = memory.get_memories(agent_name="Ron Parker")
     assert len(ron) == 1
     assert ron[0].agent_name == "Ron Parker"
-    # Ella's memory must not leak into Ron's bank.
+    # Ella 的记忆不能泄漏进 Ron 的记忆库。
     assert all("Ella" not in record.content for record in ron)
 
 
@@ -75,7 +74,7 @@ def test_memory_retention_prunes_old_life_days(tmp_path):
     memory.add_memory("Ron Parker: ancient event", "daily_plan", 5, agent_name="Ron Parker", life_day=1)
     memory.add_memory("Ron Parker: recent event", "daily_plan", 5, agent_name="Ron Parker", life_day=20)
 
-    # current day 20, retention 15 -> day 1 (< 6) is pruned out.
+    # 当前是第 20 天，保留期为 15 天 -> 第 1 天（< 6）会被清理掉。
     memory.set_life_day(20, ["Ron Parker"])
     contents = [record.content for record in memory.get_memories(agent_name="Ron Parker")]
     assert "Ron Parker: recent event" in contents
@@ -89,8 +88,8 @@ def _make_agent(tmp_path):
 
 
 def test_allowed_destinations_exclude_private_rooms():
-    # Privacy is enforced by construction: no bedroom/toilet anchors exist in
-    # the catalogue the LLM may choose from.
+    # 隐私保护是通过设计强制实现的：LLM 可选择的目的地清单中
+    # 不存在卧室/卫生间这类锚点。
     assert not any(dest.endswith(".Bed") for dest in ALLOWED_DESTINATIONS)
     assert not any(dest.endswith(".Toilet") for dest in ALLOWED_DESTINATIONS)
     assert "Park.Bench" in ALLOWED_DESTINATIONS
@@ -115,8 +114,8 @@ def test_fallback_decision_honours_top_trigger(tmp_path):
 
 def test_decide_next_action_falls_back_without_llm(tmp_path, monkeypatch):
     agent = _make_agent(tmp_path)
-    # Simulate LLM unavailability: the decision loop must still produce a
-    # valid, executable action so the simulation never stalls.
+    # 模拟 LLM 不可用的情况：决策循环仍必须产出一个有效、可执行的动作，
+    # 这样模拟才不会卡住。
     monkeypatch.setattr(agent.llm, "call_tool", lambda *args, **kwargs: None)
 
     decision = agent.decide_next_action(
@@ -133,8 +132,8 @@ def test_decide_next_action_falls_back_without_llm(tmp_path, monkeypatch):
 
 def test_decision_validation_rejects_bad_tool_output(tmp_path, monkeypatch):
     agent = _make_agent(tmp_path)
-    # An invalid destination from the model must be rejected and replaced by
-    # the deterministic fallback rather than executed.
+    # 模型给出的无效目的地必须被拒绝，并替换为确定性的兜底方案，
+    # 而不能直接执行。
     monkeypatch.setattr(
         agent.llm,
         "call_tool",
@@ -165,8 +164,8 @@ def test_decision_validation_normalizes_llm_output(tmp_path, monkeypatch):
         lambda *args, **kwargs: {
             "action": "buy groceries for dinner",
             "destination": "Supermarket.Fruit_shelf",
-            "duration_minutes": 9999,           # out of range -> clamped
-            "talk_to": "Ron Parker"             # self-talk -> nobody
+            "duration_minutes": 9999,           # 超出范围 -> 被截断
+            "talk_to": "Ron Parker"             # 自己和自己说话 -> 归为 nobody
         }
     )
 

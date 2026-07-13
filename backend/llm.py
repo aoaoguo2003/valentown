@@ -7,17 +7,17 @@ import requests
 from config import LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 from observability import log_llm_call
 
-# Transient HTTP statuses worth retrying with exponential backoff.
+# 值得用指数退避重试的临时性 HTTP 状态码。
 RETRYABLE_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504, 529}
 MAX_RETRIES = 4
 BASE_BACKOFF_SECONDS = 2
 
 
 class LLMClient:
-    """Chat client for any OpenAI-compatible endpoint (DeepSeek by default).
+    """适用于任意兼容 OpenAI 接口的对话客户端（默认使用 DeepSeek）。
 
-    Supports plain text responses for dialogue/reflection and forced function
-    calling for structured decisions (next-action planning).
+    支持用于对话/反思的纯文本回复，以及用于结构化决策
+    （下一步行动规划）的强制函数调用。
     """
 
     def __init__(self):
@@ -41,11 +41,11 @@ class LLMClient:
         ]
 
     def _post_with_retries(self, agent_name, payload):
-        """POST the payload, retrying transient failures; returns the first
-        choice message dict, or None when the request ultimately fails.
+        """发送请求体，对临时性失败进行重试；返回第一个候选的
+        message 字典，若请求最终失败则返回 None。
 
-        Every outcome (success, empty, failure, skipped) is recorded as a
-        structured trace via ``log_llm_call``."""
+        每种结果（成功、空、失败、跳过）都会通过 ``log_llm_call``
+        记录为结构化追踪日志。"""
         call_kind = "tool" if payload.get("tools") else "text"
 
         if not self.api_key:
@@ -127,15 +127,14 @@ class LLMClient:
 
         if status == "failed":
             print(f"LLM request failed after {attempts} attempt(s): {last_error}")
-        return message  # the message dict on success; None on failure/empty
+        return message  # 成功时返回 message 字典；失败/为空时返回 None
 
     def rate_importance(self, agent_name, memory_text, fallback=4):
-        """Score how poignant/significant a memory is on a 1-10 scale.
+        """按 1-10 分制评估一段记忆有多深刻/重要。
 
-        Mundane routines (eating, walking to a room) score low; emotionally or
-        socially significant events (a heartfelt talk, a conflict, a milestone)
-        score high. Returns the integer score, or ``fallback`` when the LLM is
-        unavailable or the reply cannot be parsed."""
+        日常琐事（吃饭、走去另一个房间）得分低；情感上或社交上
+        重要的事件（一次推心置腹的谈话、一次冲突、一个里程碑）得分高。
+        返回整数分数；若 LLM 不可用或回复无法解析，则返回 ``fallback``。"""
         context = (
             "On a scale of 1 to 10, rate how poignant the following memory is. "
             "1 is purely mundane (brushing teeth, walking to another room, a "
@@ -153,7 +152,7 @@ class LLMClient:
         return max(1, min(10, int(match.group())))
 
     def get_response(self, agent_name, context, memory=None):
-        """Free-text completion, used for dialogue and reflection."""
+        """自由文本补全，用于对话和反思。"""
         payload = {
             "model": self.model,
             "max_tokens": 1024,
@@ -166,10 +165,10 @@ class LLMClient:
         return (message.get("content") or "").strip() or None
 
     def call_tool(self, agent_name, context, tool_name, tool_description, parameters, memory=None):
-        """Forced function call returning the parsed argument dict, or None.
+        """强制函数调用，返回解析后的参数字典，或 None。
 
-        The endpoint must fill the declared parameter schema, which removes
-        the need to parse free text on the caller's side."""
+        接口必须按声明的参数 schema 填充结果，
+        这样调用方就无需再解析自由文本。"""
         payload = {
             "model": self.model,
             "max_tokens": 1024,

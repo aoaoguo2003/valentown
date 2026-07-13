@@ -1,10 +1,10 @@
-// Backend API base URL. Override by setting window.BACKEND_BASE_URL before this
-// script loads (e.g. in index.html) to point at a non-local deployment.
+// 后端 API 基础地址。可以在此脚本加载前设置 window.BACKEND_BASE_URL 来覆盖它
+// （例如在 index.html 中设置），以指向非本地部署。
 const BACKEND_BASE_URL = (typeof window !== 'undefined' && window.BACKEND_BASE_URL) || 'http://localhost:5000';
 
 let UNIT = 10;  // 每个单位 = 10 像素
-let VIEW_W = 160 * UNIT;   // 1600px viewport
-let WORLD_W = 260 * UNIT;  // 2600px scrollable map
+let VIEW_W = 160 * UNIT;   // 1600px 视口
+let WORLD_W = 260 * UNIT;  // 2600px 可滚动地图
 let WORLD_H = 90 * UNIT;   // 900px
 
 let agents = {};  // 存放所有代理
@@ -27,7 +27,7 @@ let simulationStarted = false;
 let simulationPaused = false;
 let nightInProgress = false;
 let simulationSpeed = 1;
-let focusedRouteAgent = null;  // paths are hidden unless one agent is focused
+let focusedRouteAgent = null;  // 除非聚焦到某个代理，否则路径不显示
 let selectedAgentName = 'Ron Parker';
 let userControlledAgentName = null;
 let gameScene = null;
@@ -46,8 +46,8 @@ let sleepBubbles = {};
 let sleepBubbleTweens = {};
 let anchorDebugObjects = [];
 let lastInternalStateSyncMinutes = {};
-let agentNeeds = {};        // { name: { hunger, energy, social } } polled for the needs panel
-let agentPersonas = {};     // { name: persona text | null } fetched on selection / new day
+let agentNeeds = {};        // { name: { hunger, energy, social } }，供需求面板轮询使用
+let agentPersonas = {};     // { name: persona 文本 | null }，在选中代理或进入新的一天时获取
 let needsPollTimer = null;
 let restoredAgentSnapshot = null;
 let walkingFrameTimers = {};
@@ -59,9 +59,9 @@ const DAY_START_MINUTES = 6 * 60;
 const DAY_END_MINUTES = 23 * 60;
 const SIM_MINUTES_PER_SECOND = 1;
 
-// Need-driven loop: deterministic wake/bed window, staggered per agent so the
-// town does not move in lockstep. Everything between wake and bed is decided
-// one action at a time by the backend (/decide_next_action).
+// 需求驱动循环：起床/睡觉的时间窗口是确定性规则，每个代理各自错峰，
+// 使小镇不会所有人步调一致地行动。从起床到睡觉之间的每一个动作，
+// 都由后端（/decide_next_action）逐一决定。
 const DEFAULT_WAKE_MINUTES = 6 * 60 + 30;
 const WAKE_STAGGER_MINUTES = 10;
 const DEFAULT_BED_MINUTES = 22 * 60;
@@ -385,8 +385,8 @@ function buildHomeNavNodes() {
         Object.keys(homeDoorOffsets).forEach(doorName => {
             nodes[`${home.area}.${doorName}`] = offsetDoorPoint(home, getHomeDoorOffset(home.area, doorName));
         });
-        // A foyer just inside the door funnels every room to the doorway, so
-        // agents converge on the gap to enter/leave instead of cutting across.
+        // 门内侧的玄关会把每个房间都汇聚到门口，
+        // 这样代理进出时会朝门口的缺口移动，而不会抄近路穿过房间。
         const doorInOffset = getHomeDoorOffset(home.area, 'door_in');
         nodes[`${home.area}.foyer`] = offsetDoorPoint(home, { x: doorInOffset.x, y: doorInOffset.y - 3 });
         nodes[`road.${home.area}`] = { x: home.x + (home.doorXOffset || 0), y: MAIN_ROAD_Y };
@@ -413,10 +413,10 @@ function buildHomeNavEdges() {
 
 let gameConfig = {
     type: Phaser.AUTO,
-    width: WORLD_W,   // canvas matches the town's true size; coords use UNIT, not config
+    width: WORLD_W,   // 画布尺寸与小镇的真实大小一致；坐标使用 UNIT 单位，而非该配置值
     height: WORLD_H,
     parent: 'game-container',
-    backgroundColor: '#cce6ff',  // fills any small letterbox band around the map
+    backgroundColor: '#cce6ff',  // 填充地图周围可能出现的小块黑边
     scene: { preload, create, update },
     scale: {
         mode: Phaser.Scale.FIT,
@@ -426,8 +426,8 @@ let gameConfig = {
 
 const game = new Phaser.Game(gameConfig);
 
-// Fit the canvas to the reserved map area once the page has laid out.
-// (Guarded so the headless smoke test, which mocks `window`, can load this file.)
+// 页面布局完成后，让画布适配预留的地图区域。
+// （这里做了防护判断，以便 mock 了 `window` 的无头冒烟测试也能加载本文件。）
 window.addEventListener?.('load', () => game.scale.refresh());
 
 function preload() {
@@ -701,7 +701,7 @@ const navNodes = {
     'Pharmacy.door_in': { x: publicDoorX.Pharmacy, y: 80 },
     'Pharmacy.door_out': { x: publicDoorX.Pharmacy, y: PUBLIC_ROAD_Y },
 
-    // Foyers just inside each public entrance, so rooms funnel to the doorway.
+    // 每个公共入口内侧的玄关，用于让房间都汇聚到门口。
     'Café_bar.foyer': { x: publicDoorX['Café_bar'], y: 77 },
     'Supermarket.foyer': { x: publicDoorX.Supermarket, y: 77 },
     'Pharmacy.foyer': { x: publicDoorX.Pharmacy, y: 77 },
@@ -1153,9 +1153,9 @@ function setupUi() {
     updateRouteControls();
 }
 
-// Every bar reads as wellbeing: full = good (well-fed, rested, socially
-// content), empty = needs attention. Hunger is inverted into "satiety" so all
-// three share the same direction. Satisfaction drives both width and colour.
+// 每条进度条都代表健康状态：满 = 良好（吃饱、休息充分、社交满足），
+// 空 = 需要关注。饥饿值被反转为"饱腹感"，这样三项指标的方向就统一了。
+// 满意度同时决定进度条的宽度和颜色。
 function needSatisfaction(kind, value) {
     return kind === 'hunger' ? 100 - value : value;
 }
@@ -1165,7 +1165,7 @@ function needBarMarkup(label, kind, rawValue) {
     const satisfaction = hasValue
         ? Math.max(0, Math.min(100, Math.round(needSatisfaction(kind, rawValue))))
         : 0;
-    const hue = Math.round((satisfaction / 100) * 120); // 0 red (bad) .. 120 green (good)
+    const hue = Math.round((satisfaction / 100) * 120); // 0 为红色（差）.. 120 为绿色（好）
     const fill = hasValue ? `hsl(${hue}, 64%, 47%)` : 'rgba(45, 67, 51, 0.2)';
     const text = hasValue ? satisfaction : '–';
     return `<div class="need-row">`
@@ -2703,13 +2703,13 @@ function showStatusEmoji(scene, agentName, locationName, actionText = '') {
     );
     const x = position.x;
     const y = position.y;
-    const placeBelow = y > agent.y;  // bubble sits below the agent (agent near the top)
+    const placeBelow = y > agent.y;  // 气泡显示在代理下方（此时代理靠近顶部）
     const bubbleBg = scene.add.graphics();
     bubbleBg.fillStyle(0xffffff, 0.9);
     bubbleBg.lineStyle(2, 0xaaaaaa, 1);
     bubbleBg.fillRoundedRect(-26, -18, 52, 36, 8);
     bubbleBg.strokeRoundedRect(-26, -18, 52, 36, 8);
-    // Tail points at the agent: up when the bubble is below it, down otherwise.
+    // 尾巴指向代理：气泡在下方时尾巴朝上，否则朝下。
     if (placeBelow) {
         bubbleBg.fillTriangle(-4, -18, 4, -18, 0, -26);
         bubbleBg.strokeTriangle(-4, -18, 4, -18, 0, -26);
@@ -2726,7 +2726,7 @@ function showStatusEmoji(scene, agentName, locationName, actionText = '') {
     const container = scene.add.container(x, y, [bubbleBg, bubbleText]).setDepth(9);
     container.alpha = 0;
     activeStatusBubbles[agentName] = container;
-    // Static bubble in the speech-bubble style: one-shot fade-in, no bobbing.
+    // 采用对话气泡样式的静态气泡：仅做一次淡入，不做上下浮动。
     statusBubbleTweens[agentName] = [
         scene.tweens.add({
             targets: container,
@@ -3467,8 +3467,8 @@ function maybeStartDecisionConversation(scene, agentName) {
             syncAgentActionState(convo.responder, agentLocations[convo.responder], 'chat', { social_contact: true });
             showAgentSpeech.call(scene, convo.responder, convo.answer, releaseConversationLock);
         });
-        // Failsafe: always release the lock even if a speech bubble is interrupted
-        // before its onComplete fires, so the two agents can never deadlock.
+        // 兜底保护：即使对话气泡在 onComplete 触发前被打断，也始终会释放锁，
+        // 确保两个代理不会因此陷入死锁。
         schedule(scene, 12000, releaseConversationLock);
         updateUi();
     });
@@ -3530,7 +3530,7 @@ function normalizeOrthogonalWaypoints(startX, startY, waypoints) {
 }
 
 function shouldDrawRoute(agentName) {
-    // Paths stay hidden unless the user explicitly focuses one agent.
+    // 除非用户显式聚焦某个代理，否则路径始终隐藏。
     return focusedRouteAgent === agentName;
 }
 
@@ -3678,7 +3678,7 @@ function startUnifiedNight(scene) {
         dailyScheduleLoadedByDay[currentPlanDay] = false;
         // 通知后端进入新一天：持久化进度并触发每位代理的反思
         notifyNewDay(currentPlanDay).finally(() => {
-            // Personas evolve overnight; drop the cache so they re-fetch fresh.
+            // Persona 会在夜间演变，因此清空缓存以便重新获取最新数据。
             agentPersonas = {};
             fetchPersona(selectedAgentName);
         });

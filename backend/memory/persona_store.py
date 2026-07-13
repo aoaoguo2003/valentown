@@ -1,9 +1,8 @@
-"""Per-agent evolving self-description ("persona").
+"""每个 agent 持续演化的自我描述（"persona"）。
 
-The nightly reflection distils an agent's recent experience into a short
-self-description paragraph. That paragraph is stored here, separate from the
-raw memory bank, and injected back into the decision prompt so reflection
-actually shapes future behaviour (reflection -> persona -> action).
+每晚的反思（reflection）会把 agent 最近的经历提炼成一段简短的自我描述。这段
+描述单独存储在这里，与原始的记忆库分开，并会被重新注入到决策 prompt 中，
+使得反思真正能够影响未来的行为（reflection -> persona -> action）。
 """
 
 import json
@@ -27,7 +26,7 @@ class PersonaStore:
         return self.persona_dir / persona_filename(agent_name)
 
     def get(self, agent_name):
-        """Return the agent's current self-description, or None if unset."""
+        """返回该 agent 当前的自我描述；如果尚未设置则返回 None。"""
         path = self._path(agent_name)
         if not path.exists():
             return None
@@ -38,7 +37,7 @@ class PersonaStore:
             return None
 
     def set(self, agent_name, persona, life_day=None):
-        """Persist a new self-description (atomic write). No-op for empty text."""
+        """持久化保存新的自我描述（原子写入）。如果文本为空则不执行任何操作。"""
         persona = (persona or "").strip()
         if not persona:
             return
@@ -57,5 +56,5 @@ class PersonaStore:
             temp_path.replace(path)
 
 
-# Shared singleton used by reflection (writer) and agents (reader).
+# 由 reflection（写入方）和各个 agent（读取方）共用的单例对象。
 persona_store = PersonaStore()

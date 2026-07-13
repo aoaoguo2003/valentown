@@ -1,11 +1,11 @@
-// Smoke test for the need-driven decision loop. Loads the real frontend code
-// in a sandbox (no network, no rendering) and validates that:
-//   1. every agent's deterministic wake/bed schedule fits the day window;
-//   2. every destination the backend may pick is routable from every agent's
-//      bed, and routable back home (mirror of backend ALLOWED_DESTINATIONS);
-//   3. co-located agents resolve to the same area name, so decision-driven
-//      conversations can trigger.
-// Run from the repository root: node scripts/smoke_24h.js
+// 针对“需求驱动决策循环”的冒烟测试。在沙盒中加载真实的前端代码
+// （不联网、不渲染），并验证以下几点：
+//   1. 每个 agent 确定性的起床/睡觉时间表都落在当天的时间窗口内；
+//   2. 后端可能选择的每个目的地都能从每个 agent 的床铺出发到达，
+//      并能返回床铺（对应后端的 ALLOWED_DESTINATIONS，需保持同步）；
+//   3. 位于同一地点的 agent 会解析为相同的区域名，从而能够触发
+//      决策驱动的对话。
+// 在仓库根目录下运行：node scripts/smoke_24h.js
 
 const fs = require('fs');
 const vm = require('vm');
@@ -63,7 +63,7 @@ globalThis.__smoke = {
 const api = context.__smoke;
 const FULL_DAY_MINUTES = 24 * 60;
 
-// Mirror of the backend destination catalogue (agents/agent.py). Keep in sync.
+// 对应后端的目的地清单（agents/agent.py）。请保持两者同步。
 const HOME_AREAS = [
   'Ron_home', 'Ella_home', 'Arthur_home', 'Mia_home', 'Emma_home', 'Gavin_home', 'Adam_home'
 ];
@@ -121,7 +121,7 @@ assert(api.DAY_START_MINUTES >= 0, 'simulation day start must be inside a calend
 assert(api.DAY_END_MINUTES <= FULL_DAY_MINUTES, 'simulation day end must be inside a calendar day');
 assert(api.DAY_START_MINUTES < api.DAY_END_MINUTES, 'simulation day start must be before day end');
 
-// 1. Deterministic wake/bed schedules.
+// 1. 确定性的起床/睡觉时间表。
 for (const [index, agentName] of agentNames.entries()) {
   const schedule = api.computeDefaultSchedule(index);
   assert(schedule.wakeTime >= api.DAY_START_MINUTES, `${agentName} wakes before simulation start`);
@@ -135,8 +135,8 @@ for (const [index, agentName] of agentNames.entries()) {
   });
 }
 
-// 2. Every candidate decision destination is routable from each agent's bed
-//    and back, so no decision the backend emits can strand an agent.
+// 2. 每个候选的决策目的地都能从每个 agent 的床铺到达并返回，
+//    这样后端下发的任何决策都不会让 agent 被困在原地。
 let routesChecked = 0;
 for (const agentName of agentNames) {
   const home = api.sleepLocationByAgent[agentName];
@@ -150,8 +150,8 @@ for (const agentName of agentNames) {
   }
 }
 
-// 3. Conversation co-location: two agents sent to the same area resolve to the
-//    same area name (the trigger condition used by the frontend).
+// 3. 对话的同地检测：被派往同一区域的两个 agent 会解析为相同的
+//    区域名（这是前端用来判断触发对话的条件）。
 assert(
   api.getAreaName('Park.Bench') === api.getAreaName('Park.Tree'),
   'two park anchors must resolve to the same area for conversations'

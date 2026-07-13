@@ -1,12 +1,12 @@
-"""Lightweight observability for LLM calls.
+"""面向 LLM 调用的轻量级可观测性模块。
 
-Every LLM request flows through one chokepoint (``LLMClient._post_with_retries``)
-and is appended here as a structured JSONL trace: prompt, response, latency,
-token usage, retries, and outcome. Calls made inside a ``trace_operation`` block
-share one ``trace_id`` so a whole logical operation (a decision, a dialogue, a
-reflection) can be reconstructed end to end.
+每个 LLM 请求都会流经同一个总入口（``LLMClient._post_with_retries``），
+并在这里被追加为一条结构化的 JSONL 记录：包含 prompt、response、耗时、
+token 用量、重试次数以及最终结果。所有在 ``trace_operation`` 代码块内
+发起的调用会共享同一个 ``trace_id``，这样一整个逻辑操作（一次决策、
+一段对话、一次反思）就可以被完整地还原出来。
 
-Tracing must never break the simulation: any failure to write is swallowed.
+追踪功能绝不能影响模拟本身的运行：任何写入失败都会被静默吞掉。
 """
 
 import json
@@ -25,10 +25,10 @@ _write_lock = threading.Lock()
 
 @contextmanager
 def trace_operation(operation, agent_name=None):
-    """Group every LLM call made inside the block under one trace id.
+    """将代码块内发起的每一次 LLM 调用归入同一个 trace id。
 
-    ``operation`` is a coarse label (decision / dialogue / reflection /
-    action_memory) used later for per-operation aggregation."""
+    ``operation`` 是一个粗粒度的标签（decision / dialogue / reflection /
+    action_memory），后续会用它按操作类型做汇总统计。"""
     token = _current_trace.set({
         "trace_id": uuid.uuid4().hex[:12],
         "operation": operation,
@@ -54,7 +54,7 @@ def _truncate(value):
 
 
 def log_llm_call(record):
-    """Append one LLM call record as a JSON line. Never raises."""
+    """将一条 LLM 调用记录以 JSON 行的形式追加写入。永远不会抛出异常。"""
     if not LLM_TRACE_ENABLED:
         return
 
@@ -77,4 +77,4 @@ def log_llm_call(record):
             with path.open("a", encoding="utf-8") as file:
                 file.write(line + "\n")
     except OSError:
-        pass  # observability must never take down the simulation
+        pass  # 可观测性功能绝不能拖垮整个模拟

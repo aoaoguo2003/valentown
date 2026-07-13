@@ -4,7 +4,7 @@ from memory.persona_store import persona_store
 from observability import trace_operation
 from retrieval import retriever
 
-# Query used to surface identity-relevant memories for the persona update.
+# 用于检索与身份认同相关的记忆，供更新 persona 时使用的查询语句。
 IDENTITY_QUERY = (
     "personality traits, close relationships, personal values, recurring "
     "routines, and emotionally significant recent experiences"
@@ -18,21 +18,21 @@ class Reflection:
         self.llm = LLMClient()
 
     def generate_reflection(self, life_day=None):
-        """Distil recent experience into an evolving self-description paragraph.
+        """将最近的经历提炼为一段持续演化的自我描述文字。
 
-        Seeds from the most identity-relevant lived memories (three-factor
-        retrieval), builds on the agent's previous self-description, stores the
-        result both as the agent's persona (for prompt injection) and as a
-        reflection memory (for history). Returns (record, persona_text) or a
-        message and None when no persona could be produced."""
+        以与身份认同最相关的亲历记忆作为种子（采用三因子检索），并在
+        agent 之前的自我描述基础上进行延伸，最终结果既会作为该 agent 的
+        persona 存储（用于注入 prompt），也会作为一条 reflection 记忆存储
+        （用于历史记录）。返回 (record, persona_text)；如果无法生成 persona，
+        则返回一条提示信息和 None。"""
         if life_day is not None:
             self.memory_system.set_life_day(life_day)
 
         current_day = self.memory_system.current_life_day
         all_memories = self.memory_system.get_memories(agent_name=self.agent_name)
 
-        # Seed from lived experience only; the evolving persona already carries
-        # forward past reflections, so excluding them avoids an echo chamber.
+        # 只以亲历经历作为种子；持续演化的 persona 本身已经承载了过往的
+        # 反思内容，排除 reflection 类记忆可以避免自我强化的回音室效应。
         experiences = [mem for mem in all_memories if mem.category != "reflection"]
         seed = retriever.retrieve(experiences, query=IDENTITY_QUERY, current_day=current_day, top_k=20)
         seed_context = "\n".join(f"- {mem.content}" for mem in seed) if seed else "No recent memory."

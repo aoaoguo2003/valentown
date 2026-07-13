@@ -44,7 +44,7 @@ def make_walk_frame(source, direction):
     canvas.alpha_composite(lead_leg, (x0 + lead_dx, lower_y + lead_dy))
     canvas.alpha_composite(trail_leg, (x0 + split_x - 2 + trail_dx, lower_y + trail_dy))
 
-    # Add a small low-alpha foot echo so the alternating step reads clearly at in-game scale.
+    # 添加一个低透明度的脚部残影，使交替的步伐在游戏内缩放下依然清晰可辨。
     foot_band_h = max(8, int(crop_h * 0.12))
     feet = subject.crop((0, crop_h - foot_band_h, crop_w, crop_h))
     feet_alpha = feet.getchannel("A").point(lambda value: int(value * 0.2))

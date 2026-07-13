@@ -55,7 +55,7 @@ agent_names = [agent.name for agent in agents]
 ensure_agent_state_files(agent_names)
 memory_system.initialize_agents(agent_names)
 
-# Serialize state that multiple requests may touch concurrently.
+# 用于序列化多个请求可能并发访问的共享状态
 state_lock = threading.Lock()
 
 simulation_progress = {
@@ -129,8 +129,8 @@ load_conversations()
 
 @app.route('/decide_next_action', methods=['POST'])
 def decide_next_action():
-    """Need-driven planning: called by the client every time an agent finishes
-    an action and must choose what to do next."""
+    """基于需求驱动的规划：每当某个代理完成一个动作、需要决定接下来
+    做什么时，客户端就会调用这个接口。"""
     data = request.get_json(silent=True) or {}
     agent_name = data.get("agent_name")
     if not agent_name:
@@ -169,8 +169,8 @@ def decide_next_action():
 
 @app.route('/generate_conversation', methods=['POST'])
 def generate_conversation():
-    """Generate one short exchange between two co-located agents and store it
-    in the per-day conversation log."""
+    """为处于同一地点的两个代理生成一段简短对话，并将其存入
+    按天记录的对话日志中。"""
     data = request.get_json(silent=True) or {}
     initiator_name = data.get("initiator")
     responder_name = data.get("responder")
@@ -207,8 +207,8 @@ def generate_conversation():
 
 @app.route('/start_new_day', methods=['POST'])
 def start_new_day():
-    """Roll the simulation over to a new lived day: persist progress and let
-    every agent reflect on the previous day's memories."""
+    """将模拟推进到新的一天：持久化进度，并让每个代理
+    对前一天的记忆进行反思。"""
     data = request.get_json(silent=True) or {}
     try:
         life_day = max(1, int(data.get("life_day") or simulation_progress.get("current_life_day", 1)))
@@ -267,7 +267,7 @@ def get_config():
 
 @app.route('/get_simulation_progress', methods=['GET'])
 def get_simulation_progress():
-    # Read-only: a GET must not write to disk or mutate shared state.
+    # 只读接口：GET 请求不应写入磁盘或修改共享状态
     return jsonify(dict(simulation_progress))
 
 
@@ -430,8 +430,8 @@ def complete_agent_action_route():
         social_contact=bool(data.get("social_contact", False))
     )
 
-    # Feed completed actions back into the rolling memory bank so the next
-    # decision can build on what actually happened (routine poses excluded).
+    # 将已完成的动作反馈到滚动记忆库中，以便下一次决策能够基于
+    # 实际发生过的事情（不包括日常姿态动作）。
     if action_text and action_text not in {"wake up", "sleep", "rest"}:
         agent = agents_by_name[agent_name]
         with state_lock:

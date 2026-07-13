@@ -357,7 +357,7 @@ def update_agent_state(agent_name, updates, day=None, time=None):
     current_game_minute = get_current_game_minute(state, day=day, time=time)
     mark_state_time(state, day=day, time=time, current_game_minute=current_game_minute)
 
-    # Rebuild anchors from explicit values so manual edits become the new baseline.
+    # 根据显式数值重建锚点，使手动编辑成为新的基准。
     state["time_anchors"] = {}
     initialize_time_anchors(state)
     clamp_state_values(state)

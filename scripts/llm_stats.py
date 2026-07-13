@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Summarise the LLM trace log produced by backend/observability.py.
+"""汇总由 backend/observability.py 生成的 LLM 调用追踪日志。
 
-Reads a JSONL trace (one record per LLM call) and prints aggregate metrics:
-call volume, success/failure/fallback rates, latency percentiles, token usage,
-and per-operation / per-agent breakdowns. This is the observability companion
-that turns raw traces into the "multi-dimensional attribution" the simulation's
-behaviour can be debugged with.
+读取 JSONL 格式的追踪记录（每条记录对应一次 LLM 调用），并打印汇总指标：
+调用量、成功/失败/降级（fallback）比率、延迟百分位数、token 用量，
+以及按操作类型 / 按 agent 划分的明细。这是可观测性体系的配套工具，
+将原始追踪数据转化为可用于调试模拟行为的“多维归因”信息。
 
-Usage:
+用法：
     python scripts/llm_stats.py [path/to/llm_trace.jsonl]
 
-Defaults to backend/logs/llm_trace.jsonl relative to the repo root.
+默认使用相对于仓库根目录的 backend/logs/llm_trace.jsonl。
 """
 
 import json
