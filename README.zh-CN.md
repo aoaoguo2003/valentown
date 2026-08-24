@@ -136,7 +136,7 @@ python main.py              # 监听 http://localhost:5000
 ```ini
 LLM_API_KEY=your_key
 LLM_BASE_URL=https://api.deepseek.com   # 任意 OpenAI 兼容端点
-LLM_MODEL=deepseek-chat
+LLM_MODEL=deepseek-v4-flash
 ```
 
 ### 2. 前端

@@ -12,6 +12,13 @@ RETRYABLE_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504, 529}
 MAX_RETRIES = 4
 BASE_BACKOFF_SECONDS = 2
 
+# DeepSeek v4 系列默认开启思考模式，而思考模式会拒绝任何形式的 tool_choice
+# （返回 HTTP 400），本项目的结构化决策恰恰依赖强制函数调用。关掉它同时也
+# 省去了这个场景用不上的推理 token 计费。
+# 这属于接口兼容性参数而非业务参数，因此在统一出口注入；调用方仍可通过在
+# payload 中显式传入 thinking 来覆盖。
+THINKING_DISABLED = {"type": "disabled"}
+
 
 class LLMClient:
     """适用于任意兼容 OpenAI 接口的对话客户端（默认使用 DeepSeek）。
@@ -46,6 +53,7 @@ class LLMClient:
 
         每种结果（成功、空、失败、跳过）都会通过 ``log_llm_call``
         记录为结构化追踪日志。"""
+        payload.setdefault("thinking", THINKING_DISABLED)
         call_kind = "tool" if payload.get("tools") else "text"
 
         if not self.api_key:
@@ -163,6 +171,44 @@ class LLMClient:
         if not message:
             return None
         return (message.get("content") or "").strip() or None
+
+    def call_tools(self, agent_name, context, tool_schemas, memory=None):
+        """让模型从一组工具里**自己挑一个**调用，返回 ``{"name", "args"}``。
+
+        与 ``call_tool`` 的区别是 tool_choice 用 ``"required"``：必须调用
+        某个工具，但选哪个由模型决定——"选择工具"这个动作本身，正是
+        单函数强制调用所缺失的那一环。
+
+        注意 DeepSeek 的思考模式会拒绝任何 tool_choice，所以本类统一在
+        ``_post_with_retries`` 里关掉了思考模式（见 THINKING_DISABLED）。
+        """
+        payload = {
+            "model": self.model,
+            "max_tokens": 1024,
+            "temperature": 0.7,
+            "messages": self._build_messages(agent_name, context, memory),
+            "tools": tool_schemas,
+            "tool_choice": "required"
+        }
+        message = self._post_with_retries(agent_name, payload)
+        if not message:
+            return None
+
+        tool_calls = message.get("tool_calls") or []
+        if not tool_calls:
+            return None
+
+        function = tool_calls[0].get("function", {})
+        name = function.get("name")
+        if not name:
+            return None
+
+        try:
+            args = json.loads(function.get("arguments") or "{}")
+        except json.JSONDecodeError:
+            print(f"LLM tool call returned malformed JSON arguments: {function.get('arguments')!r}")
+            return None
+        return {"name": name, "args": args if isinstance(args, dict) else {}}
 
     def call_tool(self, agent_name, context, tool_name, tool_description, parameters, memory=None):
         """强制函数调用，返回解析后的参数字典，或 None。

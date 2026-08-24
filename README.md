@@ -136,7 +136,7 @@ The first run downloads a small local embedding model (~100 MB) for memory relev
 ```ini
 LLM_API_KEY=your_key
 LLM_BASE_URL=https://api.deepseek.com   # any OpenAI-compatible endpoint
-LLM_MODEL=deepseek-chat
+LLM_MODEL=deepseek-v4-flash
 ```
 
 ### 2. Frontend
