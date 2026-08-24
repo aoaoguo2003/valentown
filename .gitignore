@@ -38,3 +38,12 @@ frontend/assets/park1.png
 Thumbs.db
 .idea/
 .vscode/
+
+# 邮件数据属于运行期状态，不进版本库
+backend/mailboxes.json
+backend/inventory.json    # 改名成 economy 之前的旧文件
+backend/economy.json
+backend/goals.json
+
+# 归档的开发期产物（调试图、截图、日志），确认后可整个删掉
+_archive/
