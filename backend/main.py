@@ -4,6 +4,7 @@ from memory.memory_system import MemorySystem
 from memory.persona_store import persona_store
 from memory.reflection import Reflection
 from agent_state import (
+    parse_clock_to_minutes,
     advance_agent_state_time,
     complete_agent_action,
     ensure_agent_state_files,
@@ -12,6 +13,12 @@ from agent_state import (
     load_all_agent_states,
     update_agent_state
 )
+from runtime import run_decision_loop
+from economy import economy
+from goals import goal_store
+from mailbox import mailbox
+from weather import weather_service
+from world import World
 import json
 import os
 import threading
@@ -127,6 +134,46 @@ memory_system.set_life_day(simulation_progress["current_life_day"], agent_names)
 load_conversations()
 
 
+def current_agent_locations():
+    """世界眼中"每个人现在在哪"：以后端记录的目的地为底，再用前端同步
+    上来的实际位置覆盖。调用方需持有 state_lock。
+
+    ⚠️ 这是**世界视角**的全局位置表。它只用于裁决动作和构造感知结果，
+    绝不能整份进入任何居民的决策上下文——居民只能看见同区域的人。
+    """
+    locations = {agent.name: agent.current_location for agent in agents}
+    for name, location in (simulation_progress.get("agent_locations") or {}).items():
+        if name in locations and location:
+            locations[name] = location
+    return locations
+
+
+def make_world_provider(time_text, life_day):
+    """交给决策循环的 ``with_world``：在锁内取最新世界快照并调用 fn。
+
+    锁只在这一瞬间持有（构造快照 + 裁决，都是纯内存操作，微秒级），
+    循环里的 LLM 调用全部发生在锁外。改造前整个决策——包括那次最长
+    60 秒的网络请求——都在锁内，七个居民因此彻底串行。
+    """
+    # 天气在进锁之前取好：它背后是一次外部调用（虽然有缓存），
+    # 绝不能把一次可能的网络往返塞进临界区里。
+    weather_code = weather_service.at(life_day, parse_clock_to_minutes(time_text))
+
+    def with_world(fn):
+        with state_lock:
+            world = World(
+                time_text=time_text,
+                agent_locations=current_agent_locations(),
+                unread_counts=mailbox.unread_counts(),
+                balances=economy.balances(),
+                holdings=economy.all_holdings(),
+                weather_code=weather_code,
+                life_day=life_day,
+            )
+            return fn(world)
+    return with_world
+
+
 @app.route('/decide_next_action', methods=['POST'])
 def decide_next_action():
     """基于需求驱动的规划：每当某个代理完成一个动作、需要决定接下来
@@ -146,24 +193,32 @@ def decide_next_action():
     agent = agents_by_name[agent_name]
     state = load_agent_state(agent_name)
     triggers = evaluate_agent_triggers(state)
+    time_text = data.get("time") or "morning"
 
     with state_lock:
         memory_system.set_life_day(life_day, [agent_name])
-        decision = agent.decide_next_action(
-            internal_state=state,
-            triggers=triggers,
-            day_number=life_day,
-            time_text=data.get("time") or "morning",
-            current_location=data.get("current_location") or agent.current_location,
-            last_action=data.get("last_action")
-        )
-        agent.current_location = decision["destination"]
 
+    # 多步决策循环：模型自己选工具，环境可以拒绝，被拒后带着理由重新规划。
+    # LLM 调用在锁外，只有取快照和提交决策进锁。
+    decision, steps = run_decision_loop(
+        agent,
+        internal_state=state,
+        triggers=triggers,
+        day_number=life_day,
+        time_text=time_text,
+        current_location=data.get("current_location") or agent.current_location,
+        last_action=data.get("last_action"),
+        with_world=make_world_provider(time_text, life_day),
+    )
+
+    # 响应只增字段不改字段：decision 的结构与改造前一致，前端无需改动。
     return jsonify({
         "agent_name": agent_name,
         "life_day": life_day,
         "decision": decision,
-        "triggers": triggers
+        "triggers": triggers,
+        "observation": agent.last_observation,
+        "steps": steps
     })
 
 
@@ -219,6 +274,13 @@ def start_new_day():
     with state_lock:
         memory_system.set_life_day(life_day, agent_names)
         save_simulation_progress({"current_life_day": life_day})
+        # 每日进货：货架补回上限。补满而非累加，否则卖不掉的东西会
+        # 无限堆积，几天之后稀缺性就消失了，抢购也就不会再发生。
+        economy.restock_daily()
+        # 每三天发一次社保。注意这两个操作的性质不同：补货是赋值，重复
+        # 调用无害；发钱是累加，重复调用钱就翻倍——所以它用天数当幂等键，
+        # 自己记住"这一天发过了"。
+        economy.pay_benefit(life_day, agent_names)
 
         if life_day > 1:
             for agent in agents:

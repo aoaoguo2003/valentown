@@ -3,91 +3,21 @@ from observability import trace_operation
 from retrieval import retriever
 from memory.persona_store import persona_store
 
-HOME_AREAS = [
-    "Ron_home",
-    "Ella_home",
-    "Arthur_home",
-    "Mia_home",
-    "Emma_home",
-    "Gavin_home",
-    "Adam_home",
-]
-
-HOME_ROOM_LOCATIONS = [
-    "Living_room",
-    "Kitchen",
-    "Dining_table",
-    "Dinning_room",
-    "Study_corner",
-    "Desk",
-    "Bookshelf",
-    "Reading_chair",
-    "Sofa",
-    "Chair",
-    "Porch",
-    "Window",
-]
-
-PUBLIC_LOCATIONS = [
-    "Park.Chair",
-    "Park.River",
-    "Park.Tree",
-    "Park.Bench",
-    "Park.Flower_bed",
-    "Park.Playground",
-    "Park.Bridge",
-    "Café_bar.Boss",
-    "Café_bar.Customer_cafe",
-    "Café_bar.Customer_bar",
-    "Café_bar.Window_seat",
-    "Café_bar.Corner_table",
-    "Café_bar.Counter",
-    "Café_bar.Patio",
-    "Supermarket.Boss",
-    "Supermarket.Customer_drink",
-    "Supermarket.Customer_eat",
-    "Supermarket.Checkout",
-    "Supermarket.Fruit_shelf",
-    "Supermarket.Storage",
-    "Supermarket.Entrance_aisle",
-    "Pharmacy.Boss",
-    "Pharmacy.Customer_left",
-    "Pharmacy.Customer_right",
-    "Pharmacy.Prescription_counter",
-    "Pharmacy.Medicine_shelf",
-    "Pharmacy.Waiting_chair",
-    "Pharmacy.Consult_room",
-]
-
-AGENT_NAMES = [
-    "Ron Parker",
-    "Ella Parker",
-    "Emma Harris",
-    "Gavin Harris",
-    "Adam Harris",
-    "Mia Thompson",
-    "Arthur Morgan",
-]
-
-# 单次动作的决策边界，单位为游戏内分钟。
-MIN_ACTION_MINUTES = 15
-MAX_ACTION_MINUTES = 180
-DEFAULT_ACTION_MINUTES = 60
-
-
-def build_allowed_destinations():
-    """代理可选择的所有可导航目的地锚点。卧室和洗手间被特意排除在
-    HOME_ROOM_LOCATIONS 之外，因此隐私规则是通过结构设计来强制保证的，
-    而不是依靠 prompt 指令来约束。"""
-    home_locations = [
-        f"{home_area}.{room_name}"
-        for home_area in HOME_AREAS
-        for room_name in HOME_ROOM_LOCATIONS
-    ]
-    return home_locations + PUBLIC_LOCATIONS
-
-
-ALLOWED_DESTINATIONS = build_allowed_destinations()
+# 地点/居民常量与工具定义都在 tools.py：目的地白名单本质上就是 move_to
+# 的参数取值范围。此处 re-export 是为了让既有调用方（含测试）不受影响。
+from tools import (  # noqa: F401  （re-export）
+    AGENT_NAMES,
+    ALLOWED_DESTINATIONS,
+    DEFAULT_ACTION_MINUTES,
+    HOME_AREAS,
+    HOME_ROOM_LOCATIONS,
+    MAX_ACTION_MINUTES,
+    MIN_ACTION_MINUTES,
+    PUBLIC_LOCATIONS,
+    build_allowed_destinations,
+    function_schemas,
+    get_tool,
+)
 
 
 class Agent:
@@ -100,6 +30,7 @@ class Agent:
         self.memory = memory            # 记忆系统对象（支持反思、持久化）
         self.location = location        # 初始位置
         self.current_location = location  # 当前所在位置（随决策更新）
+        self.last_observation = None    # 上一次动作执行后环境返回的反馈
         self.character_description = character_description  # 自定义角色描述
         self.llm = LLMClient()
 
@@ -145,12 +76,20 @@ class Agent:
         )
         return "\n".join(f"- {record.content}" for record in top) if top else "No recent memories."
 
-    def decide_next_action(self, internal_state, triggers, day_number, time_text, current_location, last_action=None):
-        """通过强制的函数调用（function call）来选取下一个动作；当 LLM
-        不可用或返回了无效的目的地时，回退使用确定性的、由需求驱动的
-        规则。"""
-        self.memory.set_life_day(day_number or 1)
+    def build_decision_context(self, internal_state, triggers, day_number, time_text,
+                               current_location, last_action=None, scratchpad=None,
+                               visible_agents=None, unread_letters=0, balance=None,
+                               weather=None, tasks=""):
+        """组装一次决策所需的全部上下文。
 
+        循环的每一步都会重新调用它，因为 ``scratchpad``（本轮已经试过
+        什么、环境回了什么）每一步都在变。把它从决策方法里拆出来，正是
+        为了让"想一次"和"想很多次"共用同一套上下文规则。
+
+        ``visible_agents`` 只包含此刻和自己处在同一区域的人——这是居民
+        能合法获知的全部他人位置信息。远处谁在哪不进上下文，想知道只能
+        靠打听。
+        """
         values = (internal_state or {}).get("values", {})
         trigger_lines = "\n".join(
             f"- {trigger['need']}: {trigger['reason']} (intent: {trigger['intent']})"
@@ -168,96 +107,107 @@ class Agent:
         persona = persona_store.get(self.name)
         persona_line = f"Your evolving self-reflection: {persona}\n" if persona else ""
 
-        context = (
+        if visible_agents:
+            here_line = f"People you can see from here: {', '.join(visible_agents)}.\n"
+        else:
+            here_line = "You cannot see anyone else from here.\n"
+
+        # 未读**数量**是免费的，和"你饿了"这类需求提示走同一条路；信的
+        # **内容**仍然要花一步调 check_inbox 去取。全文若也自动塞进来，
+        # 就等于每次决策都为可能用不上的信件付 token。
+        if unread_letters:
+            plural = "letter" if unread_letters == 1 else "letters"
+            mail_line = (
+                f"You have {unread_letters} unread {plural} waiting in your mailbox.\n"
+            )
+        else:
+            # 空邮箱也要明说。真跑两天的数据：check_inbox 被调了 49 次，
+            # 其中 48 次空手而归——因为"没信就不提示"让模型只能盲查。
+            mail_line = "Your mailbox is empty; nobody has written to you.\n"
+
+        # 余额是**免费**的自我感知——钱在自己兜里，不必花一步去数。
+        # 但别人有多少钱看不到，那要开口问。
+        purse_line = f"You have {balance} in your purse.\n" if balance is not None else ""
+
+        # 当前天气免费——抬头就能看见。未来几小时要调 check_weather 才知道。
+        weather_line = f"The weather right now: {weather}.\n" if weather else ""
+
+        # 在办的任务免费进上下文，和未读信数量、余额、当前天气同级。
+        # 真跑的数据已经证明：不进上下文的东西，模型下一轮就忘了。
+        task_line = tasks or ""
+
+        observation_line = (
+            f"What you noticed last time: {self.last_observation}\n"
+            if self.last_observation else ""
+        )
+
+        # 本轮已经被环境拒绝过的尝试。原样摆出拒绝理由，并明确要求绕开——
+        # 不能指望模型自己记得刚撞过哪堵墙。
+        scratchpad_block = ""
+        if scratchpad:
+            steps = "\n".join(
+                f"- {entry['tool']}({entry['summary']}) -> {entry['observation']}"
+                for entry in scratchpad
+            )
+            scratchpad_block = (
+                f"So far this turn you tried:\n{steps}\n"
+                "Do not repeat anything that was refused; work around the reasons given.\n"
+            )
+
+        return (
             f"It is day {day_number}, {time_text} in Valentown. "
             f"Here is a basic description of you: {self.character_description.strip()}\n"
             f"{persona_line}"
             f"You are currently at {current_location}.\n"
+            f"{here_line}"
+            f"{mail_line}"
+            f"{purse_line}"
+            f"{weather_line}"
+            f"{task_line}"
             f"What you just finished: {last_action_text}\n"
+            f"{observation_line}"
             f"Your internal needs (0-100): hunger {values.get('hunger', '?')}, "
             f"energy {values.get('energy', '?')}, social {values.get('social', '?')}.\n"
             f"Active need triggers:\n{trigger_lines}\n"
             f"Your recent memories:\n{self._recent_memory_context(retrieval_query)}\n"
+            f"{scratchpad_block}"
             "Decide the single next thing you will do. Satisfy urgent needs first; "
             "otherwise act in character and vary your day. Use plain English only."
         )
 
-        other_names = [name for name in AGENT_NAMES if name != self.name]
-        parameters = {
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "description": "What to do next, about 10 plain-English words."
-                },
-                "destination": {
-                    "type": "string",
-                    "enum": ALLOWED_DESTINATIONS,
-                    "description": "Where to do it. Must be one of the listed anchors."
-                },
-                "duration_minutes": {
-                    "type": "integer",
-                    "minimum": MIN_ACTION_MINUTES,
-                    "maximum": MAX_ACTION_MINUTES,
-                    "description": "How long the action takes, in game minutes."
-                },
-                "talk_to": {
-                    "type": "string",
-                    "enum": other_names + ["nobody"],
-                    "description": "Who to talk to while there, or 'nobody'."
-                }
-            },
-            "required": ["action", "destination", "duration_minutes", "talk_to"]
-        }
+    def decide_next_action(self, internal_state, triggers, day_number, time_text,
+                           current_location, last_action=None, world=None):
+        """单步决策：强制调用 move_to，一次定一个动作。
+
+        这是改造前的决策方式，现在只保留给两处使用：不需要多步推理的
+        调用方，以及测试。真正的多步决策在 ``runtime.py`` 的循环里，
+        那里模型会自己在工具之间做选择。
+        """
+        self.memory.set_life_day(day_number or 1)
+
+        context = self.build_decision_context(
+            internal_state, triggers, day_number, time_text, current_location, last_action
+        )
+        move_to = get_tool("move_to")
 
         with trace_operation("decision", self.name):
-            decision = self.llm.call_tool(
+            arguments = self.llm.call_tool(
                 self.name,
                 context,
-                tool_name="choose_next_action",
-                tool_description="Choose the single next action for this resident.",
-                parameters=parameters
+                tool_name=move_to.name,
+                tool_description=move_to.description,
+                parameters=move_to.to_function_schema(self.name)["function"]["parameters"]
             )
 
-        validated = self._validate_decision(decision)
-        if validated:
-            validated["source"] = "llm"
-            return validated
+        result = move_to.handler(self, arguments, world)
+        if result["ok"]:
+            decision = dict(result["decision"])
+            decision["source"] = "llm"
+            return decision
 
         fallback = self.fallback_next_action(triggers)
         fallback["source"] = "fallback"
         return fallback
-
-    def _validate_decision(self, decision):
-        """对 tool-call 的输出进行防御性校验；返回一个规范化后的
-        决策字典，若结构不可信则返回 None。"""
-        if not isinstance(decision, dict):
-            return None
-
-        destination = decision.get("destination")
-        if destination not in ALLOWED_DESTINATIONS:
-            return None
-
-        action = str(decision.get("action") or "").strip()
-        if not action:
-            return None
-
-        try:
-            duration = int(decision.get("duration_minutes"))
-        except (TypeError, ValueError):
-            duration = DEFAULT_ACTION_MINUTES
-        duration = max(MIN_ACTION_MINUTES, min(MAX_ACTION_MINUTES, duration))
-
-        talk_to = decision.get("talk_to")
-        if talk_to not in AGENT_NAMES or talk_to == self.name:
-            talk_to = "nobody"
-
-        return {
-            "action": action,
-            "destination": destination,
-            "duration_minutes": duration,
-            "talk_to": talk_to
-        }
 
     def fallback_next_action(self, triggers):
         """当 LLM 不可用时使用的确定性、由需求驱动的规则，

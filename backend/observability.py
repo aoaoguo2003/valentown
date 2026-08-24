@@ -17,7 +17,7 @@ from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 
-from config import LLM_TRACE_ENABLED, LLM_TRACE_FILE, LLM_TRACE_MAX_CHARS
+from config import ACTION_TRACE_FILE, LLM_TRACE_ENABLED, LLM_TRACE_FILE, LLM_TRACE_MAX_CHARS
 
 _current_trace = ContextVar("current_trace", default=None)
 _write_lock = threading.Lock()
@@ -51,6 +51,29 @@ def _truncate(value):
     if LLM_TRACE_MAX_CHARS and len(text) > LLM_TRACE_MAX_CHARS:
         return text[:LLM_TRACE_MAX_CHARS] + f"...<+{len(text) - LLM_TRACE_MAX_CHARS} chars>"
     return text
+
+
+def log_action_event(record):
+    """把一次工具调用的结果（接受/拒绝、理由、observation）追加到动作日志。
+
+    这些事件是 ReAct 循环的行为数据：无效工具调用率、平均重规划次数、
+    各类拒绝原因的分布，全部从这里统计。和 LLM 调用日志分开存，因为
+    两者的字段结构和消费方式都不同。永远不会抛出异常。"""
+    if not LLM_TRACE_ENABLED:
+        return
+
+    entry = {"ts": datetime.now().isoformat(timespec="milliseconds")}
+    entry.update(record)
+
+    try:
+        path = Path(ACTION_TRACE_FILE)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(entry, ensure_ascii=False)
+        with _write_lock:
+            with path.open("a", encoding="utf-8") as file:
+                file.write(line + "\n")
+    except OSError:
+        pass  # 可观测性绝不能拖垮模拟
 
 
 def log_llm_call(record):
