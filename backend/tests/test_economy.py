@@ -438,17 +438,26 @@ def test_benefit_ledger_survives_a_restart(tmp_path):
 
 # ---------- 钱包工具 ----------
 
-def test_check_balance_shows_purse_and_bag(tmp_path, monkeypatch, store):
-    monkeypatch.setattr("economy.economy", store)
-    emma = _agent(tmp_path)
+def test_purse_and_pockets_need_no_tool(tmp_path, monkeypatch, store):
+    """check_balance 已删：自己的钱和东西不必花一步去问。
+
+    三天真跑里它被调了 161 次，Emma 一个人 43 次，而她的余额从头到尾没变过。
+    现在这些信息随世界快照免费进上下文。
+    """
+    from tools import TOOL_REGISTRY
+    from world import World
+
+    assert "check_balance" not in TOOL_REGISTRY
+
     store._balances["Emma Harris"] = 42
     store._holdings["Emma Harris"] = {"bread": 2}
+    world = World(time_minutes=10 * 60, balances=store.balances(),
+                  holdings=store.all_holdings())
 
-    result = get_tool("check_balance").handler(emma, {"thought": "how much do I have"}, None)
-
-    assert result["ok"] is True
-    assert "42" in result["observation"]
-    assert "bread" in result["observation"]
+    assert world.balance_for("Emma Harris") == 42
+    assert world.holdings_for("Emma Harris") == {"bread": 2}
+    # 而且只看得到自己的——别人的钱是私事。
+    assert world.holdings_for("Ron Parker") == {}
 
 
 def test_transfer_tool_reports_the_new_balance(tmp_path, monkeypatch, store):
@@ -492,8 +501,8 @@ def test_buy_tool_explains_the_shortfall(tmp_path, monkeypatch, store):
 
 
 def test_wallet_tools_cost_no_game_time():
-    assert get_tool("check_balance").terminal is False
     assert get_tool("transfer").terminal is False
+    assert get_tool("give_item").terminal is False
 
 
 # ---------- 店主进货：经营决策，不是系统福利 ----------

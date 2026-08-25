@@ -54,10 +54,8 @@ from tools.remembering import RECALL_PARAMETERS, handle_recall
 from tools.tasks import ACCEPT_TASK_PARAMETERS, handle_accept_task
 from tools.weather import CHECK_WEATHER_PARAMETERS, handle_check_weather
 from tools.wallet import (
-    CHECK_BALANCE_PARAMETERS,
     GIVE_ITEM_PARAMETERS,
     TRANSFER_PARAMETERS,
-    handle_check_balance,
     handle_give_item,
     handle_transfer,
 )
@@ -162,18 +160,6 @@ TOOL_REGISTRY = {
         # 店主身份是永久的，其余五个人一辈子也补不了货——两天真跑里，
         # 这件工具在他们身上白烧了七万多 token。
         eligible=lambda name: name in set(SHOP_OWNERS.values()),
-    ),
-    "check_balance": ToolSpec(
-        name="check_balance",
-        description=(
-            "See how much money you have and what you are carrying. Costs no time "
-            "and does not end your turn."
-        ),
-        parameters=CHECK_BALANCE_PARAMETERS,
-        handler=handle_check_balance,
-        terminal=False,
-        read_only=True,
-        max_per_turn=2,
     ),
     "transfer": ToolSpec(
         name="transfer",

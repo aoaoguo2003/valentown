@@ -79,7 +79,7 @@ class Agent:
     def build_decision_context(self, internal_state, triggers, day_number, time_text,
                                current_location, last_action=None, scratchpad=None,
                                visible_agents=None, unread_letters=0, balance=None,
-                               weather=None, tasks=""):
+                               weather=None, tasks="", holdings=None):
         """组装一次决策所需的全部上下文。
 
         循环的每一步都会重新调用它，因为 ``scratchpad``（本轮已经试过
@@ -125,9 +125,19 @@ class Agent:
             # 其中 48 次空手而归——因为"没信就不提示"让模型只能盲查。
             mail_line = "Your mailbox is empty; nobody has written to you.\n"
 
-        # 余额是**免费**的自我感知——钱在自己兜里，不必花一步去数。
-        # 但别人有多少钱看不到，那要开口问。
-        purse_line = f"You have {balance} in your purse.\n" if balance is not None else ""
+        # 钱和随身物品都是**免费**的自我感知：自己兜里有什么，不必花一步去数。
+        # 判据不是信息量大小，而是"这是关于谁的"——自己的东西随时知道，
+        # 别人的钱、店里的货、信的内容都得动作才能得知。
+        if balance is not None:
+            carried = ", ".join(
+                f"{item} x{count}" for item, count in sorted((holdings or {}).items()) if count > 0
+            )
+            purse_line = (
+                f"You have {balance} in your purse and are carrying "
+                f"{carried if carried else 'nothing'}.\n"
+            )
+        else:
+            purse_line = ""
 
         # 当前天气免费——抬头就能看见。未来几小时要调 check_weather 才知道。
         weather_line = f"The weather right now: {weather}.\n" if weather else ""
@@ -141,18 +151,30 @@ class Agent:
             if self.last_observation else ""
         )
 
-        # 本轮已经被环境拒绝过的尝试。原样摆出拒绝理由，并明确要求绕开——
-        # 不能指望模型自己记得刚撞过哪堵墙。
+        # 本轮的经历分两类摆出来。混在一起的话，"我刚知道的事实"和"这条路
+        # 走不通"长得一模一样，那句"别重复被拒的"也就淹没在列表里了——
+        # 三天真跑里出现了 83 次同一轮内重复提问。
         scratchpad_block = ""
         if scratchpad:
-            steps = "\n".join(
-                f"- {entry['tool']}({entry['summary']}) -> {entry['observation']}"
-                for entry in scratchpad
+            learned = [entry for entry in scratchpad if entry["ok"]]
+            refused = [entry for entry in scratchpad if not entry["ok"]]
+            parts = []
+            if learned:
+                facts = "\n".join(f"- {entry['observation']}" for entry in learned)
+                parts.append(f"What you have found out this turn:\n{facts}")
+            if refused:
+                walls = "\n".join(
+                    f"- {entry['tool']}({entry['summary']}): {entry['observation']}"
+                    for entry in refused
+                )
+                parts.append(
+                    f"What the town refused this turn — do not try these again:\n{walls}"
+                )
+            parts.append(
+                "Use what you already know instead of asking again, and work around "
+                "the refusals rather than repeating them."
             )
-            scratchpad_block = (
-                f"So far this turn you tried:\n{steps}\n"
-                "Do not repeat anything that was refused; work around the reasons given.\n"
-            )
+            scratchpad_block = "\n".join(parts) + "\n"
 
         return (
             f"It is day {day_number}, {time_text} in Valentown. "

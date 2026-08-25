@@ -107,6 +107,10 @@ class World:
 
         return int(self.balances.get(agent_name, INITIAL_BALANCE))
 
+    def holdings_for(self, agent_name):
+        """某人身上带着什么——同样只看得到自己的。"""
+        return dict(self.holdings.get(agent_name) or {})
+
     def weather_text(self):
         """此刻的天气，一个词。抬头就能看见，所以它免费进决策上下文。"""
         from weather import describe
