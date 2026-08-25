@@ -176,6 +176,39 @@ class World:
         return agent_name in AGENT_NAMES and area_of(self.agent_locations.get(agent_name)) == area
 
 
+def snapshot(*, agent_locations, time_text=None, time_minutes=None, life_day=1):
+    """从各个状态模块取一份完整的世界横截面。
+
+    ⚠️ **构造世界快照只能有这一处。**曾经 main.py 和 dry_run.py 各拼了一份，
+    等到 World 新增 holdings 字段时只有前者跟上了——于是离线试跑里每个人的
+    口袋都读作空的：买到药的人被告知自己两手空空，转身又去药房买了一遍，
+    而所有"把东西交给某人"的任务都在拿空背包做判定，永远无法达成。整整
+    一次十七分钟的跑，出来的数字全是废的，日志里却看不出任何异常。
+
+    问题不在漏掉的那一行，而在于同一个对象由两处拼装：给其中一处加字段，
+    另一处就开始说谎。所以现在由这里统一取数。
+
+    位置表仍由调用方传入，因为它的来源天生不同：线上要合并前端同步上来的
+    实际位置，离线试跑则以后端记录为准。
+    """
+    from economy import economy
+    from mailbox import mailbox
+    from weather import weather_service
+
+    if time_minutes is None:
+        time_minutes = parse_clock_to_minutes(time_text)
+    time_minutes = int(time_minutes)
+    return World(
+        time_minutes=time_minutes,
+        life_day=life_day,
+        agent_locations=agent_locations,
+        unread_counts=mailbox.unread_counts(),
+        balances=economy.balances(),
+        holdings=economy.all_holdings(),
+        weather_code=weather_service.at(life_day, time_minutes),
+    )
+
+
 # 没有世界状态时使用的空世界：一切开放、一切有位、看不见任何人。
 # 它让 handler 在缺少世界快照时退化为"只做结构校验"，与改造前的行为一致。
 EMPTY_WORLD = World(time_minutes=12 * 60, agent_locations={})

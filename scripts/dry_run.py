@@ -79,7 +79,7 @@ from memory.memory_system import MemorySystem               # noqa: E402
 from memory.reflection import Reflection                    # noqa: E402
 from runtime import run_decision_loop                       # noqa: E402
 from weather import describe, weather_service               # noqa: E402
-from world import World, format_clock                       # noqa: E402
+from world import format_clock, snapshot                       # noqa: E402
 
 WAKE_MINUTE = 6 * 60 + 30
 DAY_END = 24 * 60          # 一天的终点；睡过这条线的人今天就不再决策了
@@ -187,22 +187,23 @@ class DryRun:
         print(f"    Adam 手上的退烧药   {adam}    <- 任务达成与否只看这个")
         print(f"    Emma 手上的退烧药   {emma}")
         print(f"    Emma 余额          {economy.balance('Emma Harris')}")
-        from goals import goal_store
-        print(f"    任务状态           {dict(goal_store.stats())}")
+        import goals as g
+        print(f"    任务状态           {dict(g.goal_store.stats())}")
+        print(f"    约定履约           {g.goal_store.meeting_record()}")
 
     # --- 世界快照 ---------------------------------------------------
 
     def _make_world_provider(self, life_day, minute):
-        weather_code = weather_service.at(life_day, minute)
+        # 天气先预热，免得把一次网络往返带进锁里。
+        weather_service.at(life_day, minute)
 
         def with_world(fn):
             with self.lock:
-                return fn(World(
-                    time_minutes=minute,
+                # 和线上走同一个 snapshot()：曾经这里自己拼 World，
+                # 结果新增 holdings 字段时漏了，整整一次跑的数字全是废的。
+                return fn(snapshot(
                     agent_locations={a.name: a.current_location for a in self.agents},
-                    unread_counts=mailbox_module.mailbox.unread_counts(),
-                    balances=economy_module.economy.balances(),
-                    weather_code=weather_code,
+                    time_minutes=minute,
                     life_day=life_day,
                 ))
         return with_world

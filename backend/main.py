@@ -18,7 +18,7 @@ from economy import economy
 from goals import goal_store
 from mailbox import mailbox
 from weather import weather_service
-from world import World
+from world import snapshot
 import json
 import os
 import threading
@@ -155,22 +155,17 @@ def make_world_provider(time_text, life_day):
     循环里的 LLM 调用全部发生在锁外。改造前整个决策——包括那次最长
     60 秒的网络请求——都在锁内，七个居民因此彻底串行。
     """
-    # 天气在进锁之前取好：它背后是一次外部调用（虽然有缓存），
-    # 绝不能把一次可能的网络往返塞进临界区里。
-    weather_code = weather_service.at(life_day, parse_clock_to_minutes(time_text))
+    # 天气在进锁之前预热：它背后是一次外部调用（虽然有缓存），绝不能把一次
+    # 可能的网络往返塞进临界区里。预热之后 snapshot() 里那次取值只读缓存。
+    weather_service.at(life_day, parse_clock_to_minutes(time_text))
 
     def with_world(fn):
         with state_lock:
-            world = World(
-                time_text=time_text,
+            return fn(snapshot(
                 agent_locations=current_agent_locations(),
-                unread_counts=mailbox.unread_counts(),
-                balances=economy.balances(),
-                holdings=economy.all_holdings(),
-                weather_code=weather_code,
+                time_text=time_text,
                 life_day=life_day,
-            )
-            return fn(world)
+            ))
     return with_world
 
 
