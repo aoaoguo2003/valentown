@@ -27,7 +27,7 @@ recall → check_inbox → send_mail → stay("等回音")
 
 | 层 | 文件 | 职责 |
 |---|---|---|
-| **世界状态** | `world.py` `mailbox.py` `economy.py` `weather.py` | 世界里有什么、规则是什么。数据 + 原子操作。 |
+| **世界状态** | `world.py` `mailbox.py` `economy.py` `weather.py` `goals.py` | 世界里有什么、规则是什么。数据 + 原子操作。 |
 | **工具** | `tools/`（包） | agent 能对世界做什么。每个工具 = schema + handler。 |
 | **运行时** | `runtime.py` | 决策循环。**不认识任何具体工具。** |
 | **路由** | `main.py` | 两段锁：取快照 / 提交决策。 |
@@ -38,10 +38,12 @@ recall → check_inbox → send_mail → stay("等回音")
 ```
 locations.py       小镇的地理与居民名册（不依赖任何项目模块，可被 world.py 安全导入）
 base.py            ToolSpec · reject/accept · THOUGHT_FIELD
-movement.py        move_to · stay                    占用游戏时间，会收敛本轮
+movement.py        move_to · stay · sleep            占用游戏时间，会收敛本轮
 communication.py   send_mail · check_inbox           改变世界但不占时间
 shopping.py        check_stock · buy · restock       同上
-wallet.py          check_balance · transfer          同上
+wallet.py          transfer · give_item              同上
+tasks.py           accept_task                       记下跨轮才做得完的事
+meetings.py        accept_meeting                    和人约时间地点
 weather.py         check_weather                     纯查询
 remembering.py     recall                            纯查询
 __init__.py        TOOL_REGISTRY + get_tool/function_schemas + re-export
@@ -58,7 +60,7 @@ __init__.py        TOOL_REGISTRY + get_tool/function_schemas + re-export
 
 ---
 
-## 四条不能破的规则
+## 五条不能破的规则
 
 ### 1. `terminal` 的判据是「占不占用游戏时间」
 
@@ -99,7 +101,21 @@ __init__.py        TOOL_REGISTRY + get_tool/function_schemas + re-export
 **原子性边界决定模块边界**：用两把锁做一件原子的事，除了部分失败，还会
 循环等待死锁。
 
-### 4. 慢 I/O 永远不进临界区
+### 4. 世界快照只能由一处拼装
+
+`world.snapshot()` 是唯一的组装点，**不要在别处直接 `World(...)`**（测试里
+手工构造无妨，那是刻意只填关心的字段）。
+
+曾经 `main.py` 和 `dry_run.py` 各拼了一份。给 World 加 `holdings` 时只有前者
+跟上了，于是离线试跑里每个人的口袋都读作空的：买到药的人被告知自己两手
+空空，转身又去药房买了一遍；所有「把东西交给某人」的任务都拿空背包做判定，
+**永远无法达成**。一次十七分钟的跑，出来的数字全是废的，而日志里只显示
+「模型没做到」。
+
+问题不在漏掉的那一行，在于同一个对象由两处拼装——**给其中一处加字段，
+另一处就开始说谎**。
+
+### 5. 慢 I/O 永远不进临界区
 
 LLM 调用（最长 60 秒）和天气请求都在锁外完成，锁只在取快照与提交时持有。
 
@@ -141,25 +157,36 @@ LLM 调用全在锁外——改造前整个决策包在全局锁里，七个居�
 
 | 工具 | terminal | 每轮上限 | 备注 |
 |---|---|---|---|
-| `move_to` | ✅ | — | destination 枚举 112 个值 |
+| `move_to` | ✅ | — | destination 枚举 112 个值，占了 schema 的近一半 |
 | `stay` | ✅ | — | 包括「等」；不查容量（位子本来就是你的），仍查营业时间与天气 |
+| `sleep` | ✅ | — | 唯一能横跨整夜的动作，上限 12 小时。⚠️ **带前端跑时不会被调用**（前端到 bedTime 自己接管） |
 | `send_mail` | ❌ | 1 | 改变世界但不占时间的典型 |
-| `check_inbox` | ❌ | 1 | 读完自动标已读 |
+| `check_inbox` | ❌ | 1 | 读完自动标已读；读到请求时会提示用 `accept_task` |
 | `check_stock` | ❌ | 2 | 要在店里，除非是店主（店主有账本） |
 | `buy` | ❌ | 2 | 必须在店里；五件事的原子事务 |
-| `restock` | ❌ | 3 | **只有店主**，且要在自己店里；进货价 = 售价 − 2 |
-| `check_balance` | ❌ | 2 | 只看得到自己的钱 |
-| `transfer` | ❌ | 1 | 不可逆；不需要见面 |
+| `restock` | ❌ | 3 | **只有店主**（永久门槛 → 不进其他人的 schema），且要在自己店里 |
+| `transfer` | ❌ | 1 | 不可逆；**不需要见面** |
+| `give_item` | ❌ | 2 | **必须当面**——和 transfer 相反；「帮人跑腿」唯一的终点 |
 | `check_weather` | ❌ | 1 | 查**预报**；当前天气免费进 context |
+| `accept_task` | ❌ | 1 | 跨轮的差事，判定 = `holdings(某人)[某物] > 0` |
+| `accept_meeting` | ❌ | 1 | 约时间地点，**给双方各建一条**；判定 = 两人都在那个区域 |
 | `recall` | ❌ | 3 | 主动检索记忆（原本是被动注入 top-12） |
 
-**免费进 context 的**（随世界快照一起取，同一时刻的横截面）：
-当前位置能看见的人、未读信**数量**、自己的余额、**当前**天气。
+⚠️ **`check_balance` 已删。**钱和背包是「关于自己的、不用动作就知道的」，
+免费进 context。它曾在三天里被调 161 次，其中一人 43 次而余额从未变过。
 
-**要花一步去取的**：信的内容、店里的货、天气**预报**、记忆。
+**免费进 context**：能看见的人、未读信**数量**、自己的钱和背包、**当前**天气、
+在办的任务、临近的约定（强制顶到最前）。
 
-分界线是**信息量**：一个数字塞进每次决策的 prompt 无所谓，一堆内容就意味着
-每次决策都在为可能用不上的东西付 token。抬头看天免费，看预报要花时间。
+**要花一步去取**：信的内容、店里的货、天气**预报**、记忆。
+
+分界线**不是信息量，是「这是关于谁的」**：自己的东西随时知道，别人的钱、
+店里的货、信的内容都得动作才能得知。天气正好横跨两边——抬头看见的当下
+免费，预报要查。
+
+scratchpad 也分两段渲染：**「已经知道的」只给结果**（哪个工具查到的无关紧要），
+**「被拒绝的」保留工具与参数**（要防的正是重复同一个调用）。混在一起时，
+一条刚学到的事实和一扇刚关上的门长得一模一样。
 
 ---
 
@@ -190,7 +217,17 @@ Pharmacy 四种药各 8 元/**上限仅 2 个**（稀缺是故意的，否则超
 大雨/暴雪/雷暴时**户外锚点被拒**（`move_to` 和 `stay` 都拒），小雨和毛毛雨不拦。
 
 ⚠️ **户外是锚点级判断，不是区域级**——`Café_bar.Patio` 是露台，同一家店里
-既有室内也有户外。营业时间和容量按区域算，天气按锚点算。
+既有室内也有户外。营业时间和容量按区域算，天气按锚点算，**见面按区域算**。
+
+**任务与承诺**：期限一律是「当天几点」，跨天即作废。同类任务每人同时最多 2 件
+（跑腿和赴约分开计数）。承诺 = 一次 `accept_meeting` 给**双方各建一条**记录，
+判定要求**两人都在**那个区域——只查自己的话，一个人在空荡荡的公园干等也会
+算作履约。任何一方排不下就整体作废，**绝不留单边约定**。
+
+**动作时长会被裁剪**：定下时长的那一刻，若 `now + duration` 会越过手上最早的
+一个截止时刻，就裁到那之前 15 分钟（要留时间赶路）。没有这一步，一个九小时
+的午觉就能把当天所有约定和差事一并作废——而动作一旦开始，后端就退出了，
+播放期间没人会再问它任何事，**「到时候提醒他」根本无从发生**。
 
 ---
 
@@ -210,8 +247,10 @@ Pharmacy 四种药各 8 元/**上限仅 2 个**（稀缺是故意的，否则超
 ## 命令
 
 ```bash
-cd backend && python -m pytest tests/ -q      # 156 个测试，无 LLM 调用、无真实网络
+cd backend && python -m pytest tests/ -q      # 226 个测试，无 LLM 调用、无真实网络
 node scripts/smoke_24h.js                     # 路径 smoke test
+python scripts/dry_run.py --days 2            # 真实 LLM 驱动整座小镇（花钱）
+python scripts/dry_run.py --days 2 --scenario errand   # 埋一个起因，验证协作链
 python eval/run_eval.py --repeats 2           # 端到端，会真实调 LLM
 ```
 
@@ -220,38 +259,33 @@ python eval/run_eval.py --repeats 2           # 端到端，会真实调 LLM
 ## 进度
 
 **已完成**
-- Step 1 工具注册表（`ToolSpec` + `TOOL_REGISTRY`）
-- Step 2 多工具选择（`llm.call_tools` + `tool_choice: "required"`）
-- Step 3 环境会说不（营业时间 / 容量 / 在场判定）
-- Step 4 决策循环（`runtime.py`）
-- Step 5 锁重构（LLM 移出锁外 + 提交前重校验）
-- Step 6 动作日志（`backend/logs/action_trace.jsonl`）
-- `stay` 工具（补上「等待」这个能力，通信的前置条件）
-- 通信系统（`mailbox.py` + 两个工具 + 未读提示进 context）
-- 库存与经济（`economy.py` + `check_stock`/`buy`/`restock`/`check_balance`/`transfer`）
-- 天气（`weather.py` + `check_weather` + 户外约束 + 故障注入测试）
-- 并发验证（`tests/test_concurrency.py`，把"锁没毁掉并发"量成了数字）
+- 工具注册表 + 多工具选择 + ReAct 循环 + 锁重构 + 动作日志
+- 四个世界系统：通信、经济（货+钱+进货）、天气、任务
+- `stay` / `sleep` / `give_item` / `accept_task` / `accept_meeting`
+- 工具白名单（只按**永久**资格筛）、重复查询拦截、动作时长裁剪
+- 并发验证：七人并发 0.25s vs 串行 1.43s
+- 装配冒烟测试（`test_app.py`）——曾经 215 个测试全绿而 `main.py` 起不来
 
-**🔴 下一步（优先级最高）：用真实 LLM 跑一次**
+**离线试跑跑出来的结论**（`scripts/dry_run.py`）
 
-11 个工具、156 个测试，**全部是脚本化的假 LLM 测的**——验证的是"循环逻辑
-对不对"，完全没验证**真实模型面对 11 个工具会怎么表现**。未知的很多：
+自然跑三天：模型自发用了 `stay`/`sleep`/`check_weather`/`recall`，53/55 次被拒
+后会重新规划，但**通信、转账、任务一次没用**——不是工具的问题，**七个人各过
+各的日子，谁也不需要谁**。所以有了 `--scenario errand`：Gavin 请 Emma 给发烧的
+Adam 买药，而她差 5 块钱。
 
-- 11 个 schema 全进 prompt（`move_to` 光枚举就 112 个值），会不会选择困难？
-- **会不会用 `stay` 来等**？这是通信链条的关键一环，但模型可能想不到
-- 会不会疯狂调查询工具，五步用完还没做出行动？
-- 会不会根本不碰新工具，永远只用 `move_to`？
-- 被拒之后是真重新规划，还是换个说法再撞一次？
+埋钩子之后整条链走通了：读信 → 记下任务 → 发现钱不够 → 借钱 → 买 → 约见面
+→ 当面交付。**判定只看 `Adam 手上有没有药`**，不看模型怎么说。
 
-这些只有真跑才知道，而且**会直接影响设计**（可能要减工具、改 description、
-调 `MAX_STEPS`）。成本大约几毛钱。**在继续加系统之前先做这个。**
+最近一次：`done 3 / failed 1`，履约率 `1/1`。
 
-**之后**
-- 承诺机制（约定 + 冲突检测 + 履约判定 → 产出「承诺履约率」指标）
-- 评估集 + 指标（任务成功率 / 无效工具调用率 / 平均重规划次数）+ baseline 对照
-- 可选：`main.py` 515 行可抽个 `persistence.py`（装配 + 持久化 + 17 个路由混在一起）
+⚠️ 但 `accept_meeting` 只被用了 1 次，而「找不到人」仍有 44 次——**机制是通的，
+模型用得少**。下一步该看的是怎么让它更常想到「先约个时间」。
 
----
+**接下来**
+- 评估集：把 `--scenario` 扩成一组固定用例 + baseline 对照（关掉某个能力再跑）
+- `run_eval.py` 仍挂在旧的单步路径上（见下节）
+- 可选：`main.py` 515 行可抽个 `persistence.py`
+- 可选：事件队列（把「现在是什么状态」换成「发生过什么」）；真中断要改前端，不做
 
 ## ⚠️ 两条平行的决策路径
 
@@ -280,4 +314,7 @@ tests/test_core.py 里的三个测试同样挂在旧路径上。
   不攒着最后一起看。
 - ⚠️ **Git Bash 的 heredoc 会吃掉 `\n` 转义和全角引号**。写含中文或转义的
   patch 脚本时用 Write 工具写成 `.py` 文件再执行，不要用 `python - <<'EOF'`。
+- ⚠️ **每个字符串替换都要 `assert` 命中次数。**漏了 assert 的 `str.replace`
+  在锚点写错时会静默返回原文——曾因此让 `main.py` 引用了一个不存在的名字，
+  而 215 个测试全绿，因为没有一个测试 import 过它。
 - 改动都在工作区**未提交**，`git diff` 可 review。

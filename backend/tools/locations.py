@@ -111,3 +111,10 @@ OUTDOOR_ANCHORS = frozenset(
 def is_outdoor(location):
     """这个锚点是不是露天的——下大雨时待不住的那种。"""
     return str(location or "") in OUTDOOR_ANCHORS
+
+
+# 可以约见的地方，按**区域**而非锚点——同在一个区域就算碰上面了，
+# 不必挤在同一张长椅上。这和 world.visible_agents() 用的粒度一致。
+MEETING_AREAS = sorted(
+    set(HOME_AREAS) | {location.split(".")[0] for location in PUBLIC_LOCATIONS}
+)

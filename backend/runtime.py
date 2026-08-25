@@ -170,6 +170,8 @@ def run_decision_loop(agent, *, internal_state, triggers, day_number, time_text,
         # ── 提交：行动类成功了才进锁，并对照最新世界重新裁决一次 ──
         if result["ok"] and spec.terminal:
             result = with_world(lambda current: _commit(agent, spec, call["args"], current))
+            if result["ok"]:
+                _clip_to_next_deadline(agent, result, world)
 
         _record(scratchpad, trace,
                 tool=spec.name, args=call["args"], ok=result["ok"],
@@ -201,6 +203,48 @@ def _remember_settled(agent, goal, day_number):
         )
     except Exception:                       # noqa: BLE001  记忆写失败不能拖垮决策
         pass
+
+
+def _clip_to_next_deadline(agent, result, world):
+    """不让一个动作睡过约定。
+
+    ``sleep`` 能跑九个小时，普通动作也能到三小时。而动作一旦开始，后端就
+    退出了——播放期间没人会再问它任何事，所以"到时候提醒他"根本无从发生。
+
+    唯一能管住的时刻，就是**定下时长的这一刻**。这不是中断：没有任何东西
+    把他叫醒，只是这个动作一开始就不允许有那么长。
+
+    在约定时刻之前留一段余量，因为赶路要时间——四点整醒来是走不到公园的。
+    """
+    from goals import COMMITMENT_BUFFER_MINUTES, goal_store
+    from tools.locations import MIN_ACTION_MINUTES
+
+    decision = result.get("decision")
+    if not decision:
+        return
+
+    deadline = goal_store.next_deadline(agent.name, world.life_day)
+    if deadline is None:
+        return
+
+    latest_end = deadline - COMMITMENT_BUFFER_MINUTES
+    available = latest_end - world.time_minutes
+    planned = int(decision["duration_minutes"])
+    if available >= planned:
+        return                                  # 本来就赶得上，不动它
+
+    clipped = max(MIN_ACTION_MINUTES, available)
+    if clipped >= planned:
+        return
+
+    decision["duration_minutes"] = clipped
+    # 说明为什么变短了，否则模型下一轮会困惑于"我明明打算做三小时"。
+    from world import format_clock
+
+    result["observation"] += (
+        f" You cut it short to {clipped} minutes — you are due somewhere "
+        f"by {format_clock(deadline)}."
+    )
 
 
 def _commit(agent, spec, args, world):

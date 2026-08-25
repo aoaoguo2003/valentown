@@ -438,3 +438,76 @@ def test_sleep_ends_the_turn(tmp_path):
     assert get_tool("sleep").terminal is True
     terminal = sorted(n for n, s in TOOL_REGISTRY.items() if s.terminal)
     assert terminal == ["move_to", "sleep", "stay"]
+
+
+# ---------- 世界快照必须完整 ----------
+
+def test_snapshot_carries_every_store(tmp_path, monkeypatch):
+    """快照漏一个字段的后果是连锁的，而且悄无声息。
+
+    holdings 曾经只在线上路径里被传入，离线试跑那份漏了——于是每个人的
+    口袋都读作空的：买到药的人被告知自己两手空空，转身又去买了一遍；
+    所有"把东西交给某人"的任务都在拿空背包做判定，永远无法达成。一次
+    17 分钟的跑，出来的数字全是废的。
+
+    ⚠️ 现有的两百多个测试一个都发现不了这种事，因为它们全都手工构造
+    World、只填自己关心的字段。这条测的是**组装**本身。
+    """
+    from economy import Economy
+    from goals import GoalStore
+    from mailbox import Mailbox
+    from weather import WeatherService
+    from world import snapshot
+
+    economy = Economy(path=tmp_path / "economy.json")
+    monkeypatch.setattr("economy.economy", economy)
+    monkeypatch.setattr("mailbox.mailbox", Mailbox(path=tmp_path / "mail.json"))
+    monkeypatch.setattr("weather.weather_service",
+                        WeatherService(fetcher=lambda: [0] * 24))
+
+    economy._balances["Emma Harris"] = 42
+    economy._holdings["Emma Harris"] = {"cold_medicine": 1}
+    from mailbox import mailbox
+    mailbox.send("Gavin Harris", "Emma Harris", "hi", "are you free")
+
+    world = snapshot(
+        agent_locations={"Emma Harris": "Pharmacy.Counter"},
+        time_text="2:00 PM", life_day=1,
+    )
+
+    # 四个状态模块的东西一个都不能少。
+    assert world.agent_locations == {"Emma Harris": "Pharmacy.Counter"}
+    assert world.balance_for("Emma Harris") == 42
+    assert world.holdings_for("Emma Harris") == {"cold_medicine": 1}   # 曾经漏的就是这个
+    assert world.unread_for("Emma Harris") == 1
+    assert world.weather_code == 0
+    assert world.time_minutes == 14 * 60
+    assert world.life_day == 1
+
+
+def test_a_delivery_goal_can_be_judged_from_a_snapshot(tmp_path, monkeypatch):
+    """快照漏字段最隐蔽的后果：任务判定静默失效。
+
+    holdings 缺失时 is_met 永远返回 False，任务全部超时判负——而日志里
+    看不出任何异常，只会觉得"模型没做到"。
+    """
+    from economy import Economy
+    from goals import DELIVER, GoalStore
+    from mailbox import Mailbox
+    from weather import WeatherService
+    from world import snapshot
+
+    economy = Economy(path=tmp_path / "economy.json")
+    monkeypatch.setattr("economy.economy", economy)
+    monkeypatch.setattr("mailbox.mailbox", Mailbox(path=tmp_path / "mail.json"))
+    monkeypatch.setattr("weather.weather_service",
+                        WeatherService(fetcher=lambda: [0] * 24))
+    economy._holdings["Adam Harris"] = {"cold_medicine": 1}
+
+    goals = GoalStore(path=tmp_path / "goals.json")
+    goals.accept("Emma Harris", DELIVER, "Adam Harris", "cold_medicine",
+                 deadline_minute=18 * 60, life_day=1)
+
+    world = snapshot(agent_locations={}, time_text="2:00 PM", life_day=1)
+
+    assert goals.active_for("Emma Harris", 1)[0].is_met(world) is True

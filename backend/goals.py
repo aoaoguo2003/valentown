@@ -38,21 +38,26 @@ from pathlib import Path
 
 GOALS_FILE = Path(__file__).with_name("goals.json")
 
-# 一个人同时最多扛几件事。多了上下文会被任务列表挤满，
+# 每一类任务同时最多扛几件。分类计数而不是总量计数：跑腿和赴约是两回事，
+# 手上有一件差事不该妨碍你答应见个面。多了上下文会被任务列表挤满，
 # 而且模型会在几件事之间反复横跳、哪件都做不完。
 MAX_ACTIVE = 2
 
+# 约定之前要留出的余量。到点才醒来是来不及的——还得走过去。
+COMMITMENT_BUFFER_MINUTES = 15
+
 DELIVER = "deliver"
 ARRIVE = "arrive"
-KINDS = (DELIVER, ARRIVE)
+MEET = "meet"
+KINDS = (DELIVER, ARRIVE, MEET)
 
 
 @dataclass
 class Goal:
     owner: str
     kind: str
-    person: str               # deliver: 交给谁；arrive: 谁要到场（通常是自己）
-    what: str                 # deliver: 物品名；arrive: 区域名
+    person: str               # deliver: 交给谁；arrive/meet: 对方是谁
+    what: str                 # deliver: 物品名；arrive/meet: 区域名
     deadline_minute: int      # 当天的几点几分之前
     life_day: int
     reason: str = ""          # 人话描述，直接进决策上下文
@@ -65,18 +70,31 @@ class Goal:
         if self.kind == DELIVER:
             who = "yourself" if self.person == self.owner else self.person
             core = f"get {self.what} to {who}"
+            when = f"before {format_clock(self.deadline_minute)}"
+        elif self.kind == MEET:
+            core = f"meet {self.person} at {self.what}"
+            when = f"at {format_clock(self.deadline_minute)}"
         else:
             core = f"be at {self.what}"
+            when = f"before {format_clock(self.deadline_minute)}"
         tail = f" ({self.reason})" if self.reason else ""
-        return f"{core} before {format_clock(self.deadline_minute)}{tail}"
+        return f"{core} {when}{tail}"
 
     def is_met(self, world):
         """判定只看世界状态——代码查得到的事实，不是模型的说法。"""
-        if self.kind == DELIVER:
-            return int((world.holdings.get(self.person) or {}).get(self.what, 0)) > 0
         from world import area_of
 
-        return area_of((world.agent_locations or {}).get(self.person)) == self.what
+        if self.kind == DELIVER:
+            return int((world.holdings.get(self.person) or {}).get(self.what, 0)) > 0
+
+        locations = world.agent_locations or {}
+        if self.kind == MEET:
+            # **双方**都得在场。约会不是"我到了"，是"我们碰上了"——
+            # 只查自己的话，一个人在空荡荡的公园干等也算履约了。
+            return (area_of(locations.get(self.owner)) == self.what
+                    and area_of(locations.get(self.person)) == self.what)
+
+        return area_of(locations.get(self.person)) == self.what
 
 
 class GoalStore:
@@ -93,7 +111,8 @@ class GoalStore:
             return {"ok": False, "reason": "unknown_kind"}
 
         with self._lock:
-            active = [g for g in self._goals if g.owner == owner and g.status == "active"]
+            active = [g for g in self._goals
+                      if g.owner == owner and g.status == "active" and g.kind == kind]
             if len(active) >= MAX_ACTIVE:
                 return {
                     "ok": False,
@@ -116,6 +135,65 @@ class GoalStore:
             self._goals.append(goal)
             self._save()
             return {"ok": True, "goal": goal, "description": goal.describe()}
+
+    def arrange_meeting(self, first, second, area, at_minute, life_day, reason=""):
+        """一次约定，给**双方各建一个** goal，共享时间与地点。
+
+        为什么不是"我记下来、再写信告诉你"：那样两个人的记录会各自漂移，
+        而且判定得同时查两份。共享同一个时间地点、各自持有一份，双方的
+        上下文里就都会出现它，谁没到场也一目了然。
+
+        对方随后会在自己的决策上下文里看到这个约定——接受的动作直接改变了
+        双方的世界状态，不需要再回一封确认信。
+        """
+        outcomes = []
+        for owner, other in ((first, second), (second, first)):
+            outcomes.append(self.accept(
+                owner=owner, kind=MEET, person=other, what=area,
+                deadline_minute=at_minute, life_day=life_day, reason=reason,
+            ))
+        if all(result["ok"] for result in outcomes):
+            return {"ok": True, "description": outcomes[0]["description"]}
+
+        # 有一方没排上就整体作废，绝不留下单边的约定——
+        # 一个人以为约好了、另一个人根本不知道，比没约还糟。
+        with self._lock:
+            self._goals = [
+                goal for goal in self._goals
+                if not (goal.kind == MEET and goal.what == area
+                        and goal.deadline_minute == at_minute
+                        and goal.status == "active"
+                        and {goal.owner, goal.person} == {first, second})
+            ]
+            self._save()
+        failed = next(result for result in outcomes if not result["ok"])
+        return {"ok": False, "reason": failed["reason"], "detail": failed}
+
+    def next_deadline(self, owner, life_day):
+        """这个人手上最早的一个截止时刻；没有在办的事就返回 None。
+
+        约会的时刻和任务的期限在这里是同一回事——**都是"不能睡过头"的
+        那个点**。一个九小时的午觉能把当天所有约定和差事一并作废。
+        """
+        pending = self.active_for(owner, life_day)
+        return min((goal.deadline_minute for goal in pending), default=None)
+
+    def meeting_record(self):
+        """履约统计：约了几次、成了几次。
+
+        这是这套系统唯一的原创指标，而且它衡量的东西很具体——当"马上要
+        赴约"和"我饿了"撞在一起时，模型会怎么选。
+        """
+        meets = [goal for goal in self._goals if goal.kind == MEET]
+        honored = sum(1 for goal in meets if goal.status == "done")
+        broken = sum(1 for goal in meets if goal.status == "failed")
+        settled = honored + broken
+        return {
+            "arranged": len(meets) // 2,          # 一次约定两条记录
+            "honored": honored // 2 if honored else 0,
+            "broken": broken,
+            "rate": round(honored / settled, 3) if settled else None,
+        }
 
     def active_for(self, owner, life_day):
         with self._lock:
@@ -157,13 +235,26 @@ class GoalStore:
         goals = self.active_for(owner, world.life_day)
         if not goals:
             return ""
+        from world import format_clock
+
         lines = []
+        due_now = []
         for goal in goals:
             state = "already satisfied" if goal.is_met(world) else "not done yet"
             left = goal.deadline_minute - world.time_minutes
             urgency = f", {max(0, left)} minutes left" if left <= 120 else ""
             lines.append(f"- {goal.describe()} [{state}{urgency}]")
-        return "You have taken on:\n" + "\n".join(lines) + "\n"
+            # 约会临近时单独顶到最前面。三天真跑显示模型连上一步查过的余额
+            # 都记不住，三小时前的约定更不可能自己想起来——所以这一行必须是
+            # 免费、强制、按时出现的，不能指望它去检索记忆。
+            if goal.kind == MEET and 0 <= left <= 90 and not goal.is_met(world):
+                due_now.append(
+                    f"You are due at {goal.what} at "
+                    f"{format_clock(goal.deadline_minute)} to meet {goal.person}, "
+                    f"and it is now {world.time_text}."
+                )
+        head = "".join(f"{line}\n" for line in due_now)
+        return head + "You have taken on:\n" + "\n".join(lines) + "\n"
 
     def stats(self):
         from collections import Counter

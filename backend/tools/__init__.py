@@ -51,6 +51,7 @@ from tools.movement import (
     handle_stay,
 )
 from tools.remembering import RECALL_PARAMETERS, handle_recall
+from tools.meetings import ACCEPT_MEETING_PARAMETERS, handle_accept_meeting
 from tools.tasks import ACCEPT_TASK_PARAMETERS, handle_accept_task
 from tools.weather import CHECK_WEATHER_PARAMETERS, handle_check_weather
 from tools.wallet import (
@@ -207,6 +208,20 @@ TOOL_REGISTRY = {
         ),
         parameters=ACCEPT_TASK_PARAMETERS,
         handler=handle_accept_task,
+        terminal=False,
+        max_per_turn=1,
+    ),
+    "accept_meeting": ToolSpec(
+        name="accept_meeting",
+        description=(
+            "Agree with another resident to be in the same part of town at a "
+            "certain hour today. Use it when a letter proposes meeting up, or "
+            "when you need to hand something over — wandering about hoping to "
+            "run into someone rarely works. It goes on both your plans. Costs "
+            "no time and does not end your turn."
+        ),
+        parameters=ACCEPT_MEETING_PARAMETERS,
+        handler=handle_accept_meeting,
         terminal=False,
         max_per_turn=1,
     ),
