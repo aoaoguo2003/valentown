@@ -54,6 +54,29 @@ def _summarise_args(args):
     return ", ".join(interesting)
 
 
+def _record(scratchpad, context, *, tool, args, ok, reason, observation, terminal=None):
+    """把一步同时写进 scratchpad 和追踪日志。
+
+    这两件事必须一起发生：scratchpad 是给模型看的，日志是给我们看的，
+    少了任何一边都会得到一份自相矛盾的记录。曾经有三个提前 continue 的
+    分支只做了前者，于是被拦下的重复查询、超限的调用、模型编造的工具名
+    在追踪文件里完全不存在——而那恰恰是"无效调用率"要统计的东西。
+
+    合成一个函数是为了让"只做一半"在结构上不可能，而不是靠记得。
+    """
+    entry = {
+        "tool": tool,
+        "summary": _summarise_args(args),
+        "thought": (args or {}).get("thought"),
+        "ok": ok,
+        "reason": reason,
+        "observation": observation,
+    }
+    scratchpad.append(entry)
+    log_action_event({**context, "step": len(scratchpad) - 1, "terminal": terminal, **entry})
+    return entry
+
+
 def run_decision_loop(agent, *, internal_state, triggers, day_number, time_text,
                       current_location, last_action, with_world, max_steps=MAX_STEPS):
     """驱动一个居民做出下一个动作。
@@ -66,6 +89,7 @@ def run_decision_loop(agent, *, internal_state, triggers, day_number, time_text,
     既回灌给模型，也原样返回给调用方写进响应和追踪日志。
     """
     scratchpad = []
+    trace = {"agent_name": agent.name, "life_day": day_number, "time_text": time_text}
 
     for step in range(max_steps):
         # ── 想：世界快照 + 本轮试错记录 → 让模型自己挑工具 ──
@@ -83,6 +107,7 @@ def run_decision_loop(agent, *, internal_state, triggers, day_number, time_text,
             visible_agents=world.visible_agents(agent.name),
             unread_letters=world.unread_for(agent.name),
             balance=world.balance_for(agent.name),
+            holdings=world.holdings_for(agent.name),
             weather=world.weather_text(),
             tasks=goals.goal_store.summary_for(agent.name, world),
         )
@@ -96,14 +121,10 @@ def run_decision_loop(agent, *, internal_state, triggers, day_number, time_text,
 
         spec = get_tool(call["name"])
         if spec is None:                                    # 模型编了个不存在的工具
-            scratchpad.append({
-                "tool": call["name"],
-                "summary": _summarise_args(call["args"]),
-                "thought": call["args"].get("thought"),
-                "ok": False,
-                "reason": "unknown_tool",
-                "observation": f"There is no tool called {call['name']!r}.",
-            })
+            _record(scratchpad, trace,
+                    tool=call["name"], args=call["args"], ok=False,
+                    reason="unknown_tool",
+                    observation=f"There is no tool called {call['name']!r}.")
             continue
 
         # 同一轮里重复问同一个问题：直接把上次的答案还给它。
@@ -119,17 +140,13 @@ def run_decision_loop(agent, *, internal_state, triggers, day_number, time_text,
                 None,
             )
             if previous:
-                scratchpad.append({
-                    "tool": spec.name,
-                    "summary": _summarise_args(call["args"]),
-                    "thought": call["args"].get("thought"),
-                    "ok": False,
-                    "reason": "already_known",
-                    "observation": (
-                        f"You already checked that this turn. The answer was: "
-                        f"{previous['observation']} Act on it instead of looking again."
-                    ),
-                })
+                _record(scratchpad, trace,
+                        tool=spec.name, args=call["args"], ok=False,
+                        reason="already_known",
+                        observation=(
+                            f"You already checked that this turn. The answer was: "
+                            f"{previous['observation']} Act on it instead of looking again."
+                        ))
                 continue
 
         # 每轮调用次数上限：护栏本身也是数据驱动的，循环只数次数，
@@ -138,17 +155,13 @@ def run_decision_loop(agent, *, internal_state, triggers, day_number, time_text,
         if spec.max_per_turn:
             used = sum(1 for entry in scratchpad if entry["tool"] == spec.name and entry["ok"])
             if used >= spec.max_per_turn:
-                scratchpad.append({
-                    "tool": spec.name,
-                    "summary": _summarise_args(call["args"]),
-                    "thought": call["args"].get("thought"),
-                    "ok": False,
-                    "reason": "rate_limited",
-                    "observation": (
-                        f"You have already used {spec.name} {used} time(s) this turn. "
-                        f"Do something else now."
-                    ),
-                })
+                _record(scratchpad, trace,
+                        tool=spec.name, args=call["args"], ok=False,
+                        reason="rate_limited",
+                        observation=(
+                            f"You have already used {spec.name} {used} time(s) this turn. "
+                            f"Do something else now."
+                        ))
                 continue
 
         # ── 做：交给工具自己的 handler，锁外执行（查询类不碰共享状态）──
@@ -158,23 +171,10 @@ def run_decision_loop(agent, *, internal_state, triggers, day_number, time_text,
         if result["ok"] and spec.terminal:
             result = with_world(lambda current: _commit(agent, spec, call["args"], current))
 
-        entry = {
-            "tool": spec.name,
-            "summary": _summarise_args(call["args"]),
-            "thought": call["args"].get("thought"),
-            "ok": result["ok"],
-            "reason": result.get("reason"),
-            "observation": result["observation"],
-        }
-        scratchpad.append(entry)
-        log_action_event({
-            "agent_name": agent.name,
-            "life_day": day_number,
-            "time_text": time_text,
-            "step": step,
-            "terminal": spec.terminal,
-            **entry,
-        })
+        _record(scratchpad, trace,
+                tool=spec.name, args=call["args"], ok=result["ok"],
+                reason=result.get("reason"), observation=result["observation"],
+                terminal=spec.terminal)
 
         if result["ok"] and spec.terminal:                  # ① 正常收敛
             agent.last_observation = result["observation"]

@@ -117,8 +117,9 @@ def test_recall_result_is_fed_back_into_the_next_prompt(tmp_path, monkeypatch):
     _run(agent, _world_provider({}))
 
     assert len(contexts) == 2
-    assert "So far this turn you tried" in contexts[1]
-    assert "recall" in contexts[1]
+    # 成功的查询进"已经知道的"，不和被拒的混在一起。
+    assert "What you have found out this turn" in contexts[1]
+    assert "promised Ella to buy apples" in contexts[1]
 
 
 # ---------- 回灌：被拒绝之后带着理由重来 ----------
@@ -137,9 +138,11 @@ def test_rejected_action_is_retried_with_the_reason_in_context(tmp_path, monkeyp
     assert steps[0]["ok"] is False
     assert steps[0]["reason"] == "closed"
     assert decision["destination"] == "Park.Bench"
-    # 第二次决策的 prompt 里必须带着第一次的拒绝理由和"别重复"的指示。
+    # 第二次决策的 prompt 里必须带着第一次的拒绝理由，而且被拒的要单独成段——
+    # 混在成功结果里的话，"这条路走不通"和"我刚知道的事实"长得一模一样。
     assert "Pharmacy is closed" in contexts[1]
-    assert "Do not repeat anything that was refused" in contexts[1]
+    assert "What the town refused this turn" in contexts[1]
+    assert "work around the refusals" in contexts[1]
 
 
 def test_unknown_tool_is_rejected_and_the_loop_continues(tmp_path, monkeypatch):
@@ -522,3 +525,112 @@ def test_waiting_letters_are_still_announced(tmp_path):
 
     assert "3 unread letters" in context
     assert "mailbox is empty" not in context
+
+
+# ---------- 追踪完整性：scratchpad 和日志必须逐步对齐 ----------
+
+def test_every_step_reaches_both_the_scratchpad_and_the_trace(tmp_path, monkeypatch):
+    """曾经有三个提前 continue 的分支只写 scratchpad 不写日志。
+
+    后果不是"少了几行日志"：被拦下的重复查询、超限的调用、模型编造的工具名
+    在追踪文件里完全不存在——而那恰恰是"无效调用率"要统计的东西。一份缺了
+    浪费记录的日志，算出来的浪费率必然是零。
+
+    现有的功能测试一个都发现不了这种洞，因为它们只看返回值，不看日志。
+    """
+    logged = []
+    monkeypatch.setattr("runtime.log_action_event", lambda record: logged.append(record))
+
+    from economy import Economy
+    monkeypatch.setattr("economy.economy", Economy(path=tmp_path / "e.json"))
+
+    agent = _make_agent(tmp_path)
+    agent.current_location = "Supermarket.Checkout"
+    _scripted_llm(agent, monkeypatch, [
+        {"name": "teleport", "args": {"thought": "worth a try"}},                    # 不存在的工具
+        {"name": "check_stock", "args": {"thought": "look", "shop": "Supermarket"}},  # 正常
+        {"name": "check_stock", "args": {"thought": "again", "shop": "Supermarket"}}, # 重复 -> 被拦
+        _move("Park.Bench"),                                                          # 收敛
+    ])
+
+    _, steps = _run(agent, _world_provider({"Ron Parker": "Supermarket.Checkout"}))
+
+    assert [s["reason"] for s in steps] == [
+        "unknown_tool", None, "already_known", None]
+    # 关键：日志条数与 scratchpad 逐一对应，一步都不能少。
+    assert len(logged) == len(steps)
+    assert [r["reason"] for r in logged] == [s["reason"] for s in steps]
+    assert [r["step"] for r in logged] == list(range(len(steps)))
+
+
+def test_fallback_is_traced_too(tmp_path, monkeypatch):
+    logged = []
+    monkeypatch.setattr("runtime.log_action_event", lambda record: logged.append(record))
+
+    agent = _make_agent(tmp_path)
+    _scripted_llm(agent, monkeypatch, [_move("Pharmacy.Medicine_shelf")] * MAX_STEPS)
+
+    decision, steps = _run(agent, _world_provider({}, time_minutes=22 * 60),
+                           time_text="10:00 PM",
+                           triggers=[{"need": "hunger", "reason": "hungry", "intent": "seek_food"}])
+
+    assert decision["source"] == "fallback"
+    # 五步试错 + 一条兜底记录，日志里一条都不少。
+    assert len(logged) == len(steps) + 1
+    assert logged[-1]["reason"] == "max_steps_exhausted"
+
+
+def test_facts_and_walls_are_kept_apart(tmp_path, monkeypatch):
+    """成功和失败混成一锅时，模型分不清"我已经知道了"和"此路不通"。
+
+    三天真跑里出现了 83 次同一轮内重复提问——它把刚查到的答案当成了
+    又一条待办，而不是已知的事实。
+    """
+    from economy import Economy
+    monkeypatch.setattr("economy.economy", Economy(path=tmp_path / "e.json"))
+
+    agent = _make_agent(tmp_path)
+    agent.current_location = "Supermarket.Checkout"
+    contexts = _scripted_llm(agent, monkeypatch, [
+        {"name": "check_stock", "args": {"thought": "look", "shop": "Supermarket"}},
+        _move("Pharmacy.Medicine_shelf"),          # 20:00 药房已打烊 -> 被拒
+        _move("Park.Bench"),
+    ])
+
+    _run(agent, _world_provider({"Ron Parker": "Supermarket.Checkout"},
+                                time_minutes=20 * 60), time_text="8:00 PM")
+
+    final = contexts[2]
+    facts = final.index("What you have found out this turn")
+    walls = final.index("What the town refused this turn")
+    assert facts < walls                            # 先摆已知，再摆碰壁
+    assert "bread" in final[facts:walls]            # 货架信息归入已知
+    assert "Pharmacy is closed" in final[walls:]    # 拒绝理由归入碰壁
+
+
+def test_pockets_are_visible_without_asking(tmp_path):
+    # check_balance 已经删掉：钱和随身物品是"关于自己的、不用动作就知道的"。
+    from tools import TOOL_REGISTRY
+
+    assert "check_balance" not in TOOL_REGISTRY
+
+    agent = _make_agent(tmp_path)
+    context = agent.build_decision_context(
+        internal_state={"values": {}}, triggers=[], day_number=1,
+        time_text="9:00 AM", current_location="Ron_home.Living_room",
+        balance=12, holdings={"cold_medicine": 1, "bread": 2},
+    )
+
+    assert "12 in your purse" in context
+    assert "cold_medicine x1" in context
+    assert "bread x2" in context
+
+
+def test_empty_pockets_are_stated_too(tmp_path):
+    agent = _make_agent(tmp_path)
+    context = agent.build_decision_context(
+        internal_state={"values": {}}, triggers=[], day_number=1,
+        time_text="9:00 AM", current_location="Ron_home.Living_room",
+        balance=3, holdings={},
+    )
+    assert "carrying nothing" in context
