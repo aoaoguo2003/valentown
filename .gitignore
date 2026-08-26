@@ -38,3 +38,7 @@ frontend/assets/park1.png
 Thumbs.db
 .idea/
 .vscode/
+
+# thesis-defence build artefacts
+docs/thesis-defence/node_modules/
+docs/thesis-defence/slide-*.jpg

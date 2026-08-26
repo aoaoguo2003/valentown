@@ -1,0 +1,124 @@
+[
+  {
+    "n": 1, "title": "Title", "cn_title": "开场",
+    "say": [
+      "Good morning, and thank you for your time. My dissertation is titled 'Time-Expanded Perch Embeddings for Feeding-Buzz Detection, Retrieval and Field Candidate Discovery.'",
+      "It sits between bat bioacoustics and machine learning, and asks one question: moving a feeding-buzz detector from curated clips to real field recordings, how much does the representation of the sound matter?"
+    ],
+    "cn": "开场只做一件事：把整篇论文压成一个问题。不要念标题里的每个词，重音放在 representation 上。"
+  },
+  {
+    "n": 2, "title": "Hours of audio, seconds of signal", "cn_title": "研究动机",
+    "say": [
+      "Passive acoustic monitoring is now standard in biodiversity work — recorders sit in the field for weeks with almost no disturbance to the animals. The problem is what comes afterwards: many hours of audio for very few events of interest. In my Kenya subset alone, 9.4 hours became 270,156 analysis windows to score.",
+      "Automated detectors reduce that workload, but a detector never sees the sound — it sees a numerical representation of it, and different feature strategies give different answers on the same recordings.",
+      "Feeding buzzes are a good test case. Behaviourally they matter: in the terminal phase of prey pursuit, call rates can exceed 200 vocalisations per second, so a buzz is evidence of foraging, not just of presence. Acoustically they are hard — brief, ultrasonic at 384 kilohertz, and easily confused with other short pulse trains."
+    ],
+    "cut": "第二段可删（约 8 秒）",
+    "cn": "这一页把「为什么值得做」和「为什么难做」一次讲完。说 behaviourally / acoustically 时指右边的频谱图，观众会自然跟着看。"
+  },
+  {
+    "n": 3, "title": "Detectors exist; transfer is untested", "cn_title": "研究缺口与三个问题",
+    "say": [
+      "Specialised detectors already exist. Buzzfindr uses hand-crafted pulse timing and signal statistics, developed on Ontario recordings. BatBuddy uses a deep-learning object detector over spectrogram images, trained on Dutch recordings. Both do well on their own held-out data — and both sets of authors note that broader geographic transfer still needs validation.",
+      "So I asked three questions. Representation: does a pretrained Perch v2 representation generalise across held-out recording groups better than simpler spectral statistics? Retrieval: how well do those representations support similarity search, with no threshold fixed? And field transfer: can a detector built on curated clips support candidate discovery in long, noisy, unlabelled field audio?"
+    ],
+    "cn": "三个 RQ 是整场答辩的骨架 —— 第 8、9、10 页会一一对应回来。念 RQ 时依次点三张卡片。"
+  },
+  {
+    "n": 4, "title": "Curated clips, and continuous field audio", "cn_title": "数据",
+    "say": [
+      "Two datasets. The labelled set comes from Buzzfindr: all 158 buzz clips plus 158 non-buzz clips sampled with a fixed seed — 316 balanced files across six folders and five Ontario locations, all 384 kilohertz. Note the highlighted rows: buzzes_sp and buzzes_spmylu are both Site 4. That matters later.",
+      "The field set is a deployment at site MT18 in the Mara Triangle, Kenya — 564 one-minute recordings, 9.4 hours, one AudioMoth. Crucially there is no exhaustive ground truth, and that bounds what I can claim from it."
+    ],
+    "cn": "主动埋两个伏笔：Site 4 重复，和 Kenya 没有 ground truth。到第 12 页时考官会觉得「他早就知道」，而不是「被我们抓到了」。"
+  },
+  {
+    "n": 5, "title": "Three representations, one detector", "cn_title": "三种表征",
+    "say": [
+      "I compared three complete pipelines behind one identical detector — standardisation plus L2-regularised logistic regression. Because the classifier is held constant, any difference is attributable to the representation.",
+      "The baseline is 1,543 dimensions: the temporal mean, standard deviation and maximum for each of 513 frequency bins. The compact version asks whether that detail is necessary — 64 bands instead of 513 bins, 199 features. The third is Perch v2: frozen, pretrained on multi-taxa data, no fine-tuning, one 1,536-dimensional embedding per clip. That one needed an input adaptation."
+    ],
+    "cn": "强调 one identical detector —— 这是实验设计干净的地方，考官会认可。最后一句自然过渡到下一页。"
+  },
+  {
+    "n": 6, "title": "Making ultrasound legible to a 32 kHz model", "cn_title": "十倍时间拉伸",
+    "say": [
+      "Perch could not take my audio directly. Its frontend assumes 32 kilohertz, which represents frequencies only up to 16 kilohertz — my bat calls live far above that, and ordinary resampling would simply discard the signal.",
+      "So instead of resampling down to 32k, I resampled 384 to 320 kilohertz and let the 32 kilohertz frontend read those samples as its own. That is an exact tenfold time expansion: 0.25 seconds is heard as 2.5, with frequency shifted down by the same factor. It preserves the relative pulse pattern and moves it into a range Perch can process.",
+      "Only the Perch route carries that conversion — so what follows compares complete pipelines, not embedding architectures under identical preprocessing."
+    ],
+    "cn": "全场最技术、也最有自己贡献的一页 —— 语速放慢，四个方块一个一个过。最后一句是主动认领局限，不要省。"
+  },
+  {
+    "n": 7, "title": "Three levels of difficulty, plus retrieval", "cn_title": "评估设计",
+    "say": [
+      "I evaluated at three increasing levels of difficulty. A stratified random split as a conventional benchmark. A grouped-site split, holding out two geographically distinct folders. And six-fold leave-one-folder-out, refitting the scaler and detector inside every round.",
+      "For retrieval, all 158 buzz clips were queries, the query's own folder was excluded, and candidates were ranked by cosine similarity against a seeded random baseline.",
+      "One caveat I'll state up front rather than be asked about: buzzes_sp and buzzes_spmylu are both Site 4. So these are folder-level robustness results, not strict five-location isolation."
+    ],
+    "cut": "第二段可缩为一句（约 6 秒）",
+    "cn": "「rather than be asked about」这句很关键 —— 它把弱点转成严谨性的证据。语气要平稳自信，不要像在道歉。"
+  },
+  {
+    "n": 8, "title": "Not just better on average — more stable", "cn_title": "检测结果 RQ1",
+    "say": [
+      "The grouped-site test turned out to be easy — all three reached an F1 of 1.0, so that test did not discriminate between them.",
+      "Leave-one-folder-out is where they separate. Mean F1 was 0.872 for the baseline, 0.870 for compact, 0.989 for Perch. But the more informative number is the worst folder — the amber bars: 0.727, 0.691, and 0.950. Standard deviation across rounds was 0.020 for Perch, against roughly 0.10 for both spectral pipelines. Perch is not just better on average; it is far more stable when the held-out data changes.",
+      "And compact matched baseline to within 0.002 F1 using one-eighth of the dimensions."
+    ],
+    "cn": "这一页的论点不是「Perch 分数高」，而是「Perch 方差小」。一定要把 worst-folder 和 SD 讲出来 —— 这才是 generalisation 的证据。"
+  },
+  {
+    "n": 9, "title": "The same ranking, without a threshold", "cn_title": "检索结果 RQ2",
+    "say": [
+      "Retrieval shows the same ranking without fixing any threshold. Macro-averaged Precision at 10 was 0.831, 0.830, and 0.984 for Perch — against a random floor of 0.500.",
+      "Perch's average precision over the full list was 0.879 — lower than its own top-k precision, so its separation is concentrated near the top of the ranking. For a review workflow, where the annotator inspects the highest-ranked candidates first, that is the right shape.",
+      "The balanced pool does make this easier than real field data, where buzzes are far rarer."
+    ],
+    "cn": "AP 低于 P@10 听起来像缺点，但你把它解释成「正好适合人工复审」，这是加分的解读。"
+  },
+  {
+    "n": 10, "title": "Field candidate discovery in Kenya", "cn_title": "野外应用 RQ3",
+    "say": [
+      "Then the honest test: 564 unlabelled recordings, 270,156 windows, both detectors applied. Perch was the more conservative — 2.14% of windows above 0.95, against 4.43% for the baseline. Different score scales, so this compares how they prioritised the recordings, not their precision.",
+      "I then manually reviewed 69 candidates, each from a different one-minute recording, using the 0.25-second window, 1.25 seconds of context, pulse timing and time-expanded audio. Nineteen — 27.5% — were buzz-like. But the largest category, 27 candidates or 39.1%, was insect-like pulse trains.",
+      "These were selected by Perch score, so those proportions describe the reviewed set, not prevalence."
+    ],
+    "cn": "「the honest test」让考官意识到你清楚 curated 和 field 的差别。最后一句是关键的方法论自觉。"
+  },
+  {
+    "n": 11, "title": "Inside 0.25 s, these look alike", "cn_title": "蝙蝠 vs 昆虫",
+    "say": [
+      "This is the key field finding. Inside a 0.25-second window, a feeding buzz and an insect pulse train can both look like dense repeated pulses — which is why so many scored highly.",
+      "It is the surrounding second that separates them. Insect sequences are regular and continue far longer; buzz-like sequences are shorter, change faster, and stop. That points at a design change: wider contextual windows, or a second-stage model that examines the temporal neighbourhood around a high-scoring window.",
+      "And the 27 insect-like candidates are not a waste — they are ready-made hard negatives for an active-learning cycle."
+    ],
+    "cn": "全场最有说服力的一页，因为它把一个「错误」变成了一个「设计洞察」。指着左右两张图说 compress and stop 对 metronomic and persistent。"
+  },
+  {
+    "n": 12, "title": "What I would ask about this work", "cn_title": "主动交代局限",
+    "say": [
+      "I would rather flag the limitations myself than defend them.",
+      "First, the Site 4 folder pairing — my LOFO and retrieval numbers may be optimistic relative to a strict five-location rerun. The grouped-site test does remain geographically isolated.",
+      "Second, a duration confound. At a 0.5-second window, class label aligned perfectly with padded-versus-cropped — an obvious shortcut. I chose 0.25 seconds to weaken it, but 127 buzz clips were still padded, and Perch should not be assumed immune just because its features are pretrained.",
+      "Third, only the Perch route carries the resampling, so I compare pipelines rather than isolating the embedding. And fourth, Kenya has no ground truth, so those review proportions are descriptive — I cannot report event-level precision or recall."
+    ],
+    "cut": "第四段的「Third」一句可删（约 8 秒）",
+    "cn": "主动认领局限是英国答辩最吃香的一招。四点讲得快、清楚、不带情绪 —— 语气是「我已经想过了」，不是「对不起」。"
+  },
+  {
+    "n": 13, "title": "Representation matters, but is not enough", "cn_title": "结论与下一步",
+    "say": [
+      "To conclude. On RQ1, after tenfold time expansion, frozen Perch embeddings gave the strongest and most stable folder-held-out detection — mean F1 0.989, standard deviation 0.020. On RQ2, the same ordering in retrieval, Precision at 10 of 0.984. On RQ3, in the field, representation choice is necessary but not sufficient — temporal context and human review still do essential work.",
+      "A secondary result worth keeping: 199 compact dimensions matched 1,543 baseline dimensions almost exactly. More hand-crafted features are not automatically better.",
+      "The most useful next step is an independently sampled, exhaustively reviewed Kenya subset — event-level precision and recall, both detectors on the same confirmed events, and those insect-like candidates as hard negatives."
+    ],
+    "cn": "结论页严格按 RQ1 / RQ2 / RQ3 回答，让考官在脑中打勾。最后落在 next step 上，主动把话题引向你准备好的方向。"
+  },
+  {
+    "n": 14, "title": "Thank you", "cn_title": "收尾",
+    "say": ["Thank you — I'm happy to take questions."],
+    "cn": "说完停住，不要加「就这些了」之类的填充语。"
+  }
+]
