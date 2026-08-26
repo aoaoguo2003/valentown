@@ -6,14 +6,21 @@ Thursday 27 August 2026, 17:35–17:50 BST, room N2.10.
 
 | File | What it is |
 |---|---|
-| `ICAC2026_Paper108_Valentown.pptx` | The deck — 14 slides, 16:9, visual-first: mechanism diagrams, town tiles and the paper's figures carry the argument, with keywords rather than sentences on the slides. The full English script is in each slide's speaker notes. |
-| `ICAC2026_Paper108_Valentown.pdf` | Same deck as PDF, as a backup for the venue machine. |
+| `ICAC2026_Paper108_Valentown.pptx` | The deck — 11 talk slides + 4 backup slides, 16:9, visual-first: mechanism diagrams, town tiles and the paper's figures carry the argument, with keywords rather than sentences on the slides. The full English script is in each slide's speaker notes. |
+| `ICAC2026_Paper108_Valentown.pdf` | Same deck as PDF, as a backup for the venue machine (no video — slide 6 shows the poster still). |
 | `speech-script.md` | Bilingual (EN script / 中文提示) speaking script: timing table, per-slide text, Q&A preparation. |
 
-The deck runs about 9.5–10.5 minutes at a normal pace. Figures 1–3 are taken from the paper; the
+Slide 6 is the demo slot: a 16:9 frame holding a screenshot as its poster image. Drop a ~2-minute
+screen recording on top of that frame in PowerPoint (exact size and position are in `speech-script.md`);
+if the video will not play at the venue, jump to backup slide B3, which is the same still.
+
+The deck runs about 9 minutes 25 seconds at a normal pace, including the 2-minute video. Figures 1–3 are taken from the paper; the
 screenshot on slide 8 is `docs/screenshot.png`, and the resident sprites and location tiles come from
 `frontend/assets/`. The stacked bars on slide 11 are labelled schematic — they show the qualitative
 shift in memory composition the paper reports, not measured proportions.
+
+Backup slides B1–B4 (architecture, execution flow, the client as a still, full advantages/limitations)
+sit after the thank-you slide for Q&A; jump to them by typing the slide number during the show.
 
 Fonts used: Cambria (headings) and Calibri (body) — both ship with Microsoft Office, so the deck
 renders unchanged on a venue machine.
