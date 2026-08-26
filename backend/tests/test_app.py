@@ -13,24 +13,31 @@ import pytest
 
 @pytest.fixture(scope="module")
 def app_module(tmp_path_factory, monkeypatch_module):
-    """把所有持久化指向临时目录后再导入 main。
+    """把所有持久化指向临时目录后再导入路由模块。
 
-    ``main.py`` 在导入时就会建 agents、读进度文件、初始化记忆库，所以隔离
-    必须发生在 import 之前。
+    ``api/routes.py`` 在导入时就会建 agents、读进度文件、初始化记忆库，
+    所以隔离必须发生在 import 之前。
     """
-    import agent_state
-    import economy as economy_module
-    import goals as goals_module
-    import mailbox as mailbox_module
+    import agents.state as agent_state
+    import world.economy as economy_module
+    import world.goals as goals_module
+    import world.mailbox as mailbox_module
 
+    # ⚠️ 用 monkeypatch 而不是直接赋值：直接赋值改的是**模块全局**，
+    # 这个模块跑完之后它还留在那儿，后面所有测试看到的都是沙盒路径。
+    # test_layout.py 里那个"存档是不是还在 backend/ 根下"的测试，
+    # 就是被这一手弄红的。
     sandbox = tmp_path_factory.mktemp("app")
-    agent_state.STATE_DIR = sandbox / "states"
-    economy_module.economy = economy_module.Economy(path=sandbox / "economy.json")
-    mailbox_module.mailbox = mailbox_module.Mailbox(path=sandbox / "mail.json")
-    goals_module.goal_store = goals_module.GoalStore(path=sandbox / "goals.json")
+    monkeypatch_module.setattr(agent_state, "STATE_DIR", sandbox / "states")
+    monkeypatch_module.setattr(
+        economy_module, "economy", economy_module.Economy(path=sandbox / "economy.json"))
+    monkeypatch_module.setattr(
+        mailbox_module, "mailbox", mailbox_module.Mailbox(path=sandbox / "mail.json"))
+    monkeypatch_module.setattr(
+        goals_module, "goal_store", goals_module.GoalStore(path=sandbox / "goals.json"))
 
-    import main
-    return main
+    import api.routes as routes
+    return routes
 
 
 @pytest.fixture(scope="module")
@@ -46,6 +53,16 @@ def test_the_app_actually_imports(app_module):
     """曾经 main.py 从 world 导入了一个拼写不存在的名字，两百多个测试全绿。"""
     assert app_module.app is not None
     assert len(app_module.agents) == 7
+
+
+def test_the_launcher_still_reaches_the_app(app_module):
+    """``scripts/start_backend.cmd`` 跑的是 main.py，不是 api/routes.py。
+
+    路由搬进 api/ 之后，入口那一层同样可能断——而它断了，测试全绿也没用。
+    """
+    import main
+
+    assert main.app is app_module.app
 
 
 def test_every_route_the_frontend_calls_is_registered(app_module):

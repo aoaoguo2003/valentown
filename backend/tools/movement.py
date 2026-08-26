@@ -13,7 +13,7 @@
 """
 
 from tools.base import THOUGHT_FIELD, accept, reject
-from tools.locations import (
+from world.locations import (
     AGENT_NAMES,
     ALLOWED_DESTINATIONS,
     DEFAULT_ACTION_MINUTES,
@@ -77,7 +77,7 @@ def handle_move_to(agent, args, world=None):
     ``world`` 省略时退化为纯结构校验（一切开放、一切有位），供不关心
     环境规则的调用方与单元测试使用。
     """
-    from world import EMPTY_WORLD, area_of
+    from world.snapshot import EMPTY_WORLD, area_of
 
     world = world or EMPTY_WORLD
     if not isinstance(args, dict):
@@ -204,7 +204,7 @@ def handle_stay(agent, args, world=None):
     每次决策都要进 prompt；留在原地本就无处可选，省下的既是 token，
     也是模型选错地方的机会。
     """
-    from world import EMPTY_WORLD, area_of
+    from world.snapshot import EMPTY_WORLD, area_of
 
     world = world or EMPTY_WORLD
     if not isinstance(args, dict):
@@ -305,7 +305,7 @@ def handle_sleep(agent, args, world=None):
     动作算不算休息，从而重置 energy 锚点。有了这个工具之后，那个判断第一次
     有了明确来源，而不是从自由文本里猜。
     """
-    from world import EMPTY_WORLD, area_of
+    from world.snapshot import EMPTY_WORLD, area_of
 
     world = world or EMPTY_WORLD
     location = (world.agent_locations or {}).get(agent.name) or agent.current_location

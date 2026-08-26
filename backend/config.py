@@ -1,6 +1,15 @@
 import os
 from pathlib import Path
 
+# 所有运行期存档的根目录。
+#
+# 写在这里，而不是让各个模块自己 `Path(__file__).with_name(...)`——
+# 因为**模块会搬家，config.py 不会**。分包那次，economy / goals /
+# mailbox / agent_state 四份存档跟着各自的模块挪进了子包，240 个测试
+# 全绿（测试都用 tmp_path），是 git status 里冒出来一个
+# backend/world/economy.json 才暴露的。
+DATA_DIR = Path(__file__).resolve().parent
+
 try:
     from dotenv import load_dotenv
     load_dotenv(Path(__file__).with_name(".env"))

@@ -36,7 +36,9 @@ import threading
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-GOALS_FILE = Path(__file__).with_name("goals.json")
+from config import DATA_DIR
+
+GOALS_FILE = DATA_DIR / "goals.json"
 
 # 每一类任务同时最多扛几件。分类计数而不是总量计数：跑腿和赴约是两回事，
 # 手上有一件差事不该妨碍你答应见个面。多了上下文会被任务列表挤满，
@@ -65,7 +67,7 @@ class Goal:
     seq: int = 0
 
     def describe(self):
-        from world import format_clock
+        from world.clock import format_clock
 
         if self.kind == DELIVER:
             who = "yourself" if self.person == self.owner else self.person
@@ -82,7 +84,7 @@ class Goal:
 
     def is_met(self, world):
         """判定只看世界状态——代码查得到的事实，不是模型的说法。"""
-        from world import area_of
+        from world.snapshot import area_of
 
         if self.kind == DELIVER:
             return int((world.holdings.get(self.person) or {}).get(self.what, 0)) > 0
@@ -235,7 +237,7 @@ class GoalStore:
         goals = self.active_for(owner, world.life_day)
         if not goals:
             return ""
-        from world import format_clock
+        from world.clock import format_clock
 
         lines = []
         due_now = []

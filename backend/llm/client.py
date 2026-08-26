@@ -175,9 +175,10 @@ class LLMClient:
     def call_tools(self, agent_name, context, tool_schemas, memory=None):
         """让模型从一组工具里**自己挑一个**调用，返回 ``{"name", "args"}``。
 
-        与 ``call_tool`` 的区别是 tool_choice 用 ``"required"``：必须调用
-        某个工具，但选哪个由模型决定——"选择工具"这个动作本身，正是
-        单函数强制调用所缺失的那一环。
+        ``tool_choice`` 用 ``"required"``：必须调用某个工具，但**选哪个由
+        模型决定**。改造前这里写死成 ``{"type": "function", "name": "move_to"}``，
+        模型只是在填一张表——"选择工具"这个动作根本不存在。那条单步老路
+        连同挂在它上面的旧评估已经一起删掉了，现在只剩这一条决策路径。
 
         注意 DeepSeek 的思考模式会拒绝任何 tool_choice，所以本类统一在
         ``_post_with_retries`` 里关掉了思考模式（见 THINKING_DISABLED）。
@@ -209,41 +210,3 @@ class LLMClient:
             print(f"LLM tool call returned malformed JSON arguments: {function.get('arguments')!r}")
             return None
         return {"name": name, "args": args if isinstance(args, dict) else {}}
-
-    def call_tool(self, agent_name, context, tool_name, tool_description, parameters, memory=None):
-        """强制函数调用，返回解析后的参数字典，或 None。
-
-        接口必须按声明的参数 schema 填充结果，
-        这样调用方就无需再解析自由文本。"""
-        payload = {
-            "model": self.model,
-            "max_tokens": 1024,
-            "temperature": 0.7,
-            "messages": self._build_messages(agent_name, context, memory),
-            "tools": [
-                {
-                    "type": "function",
-                    "function": {
-                        "name": tool_name,
-                        "description": tool_description,
-                        "parameters": parameters
-                    }
-                }
-            ],
-            "tool_choice": {"type": "function", "function": {"name": tool_name}}
-        }
-        message = self._post_with_retries(agent_name, payload)
-        if not message:
-            return None
-
-        tool_calls = message.get("tool_calls") or []
-        if not tool_calls:
-            return None
-
-        arguments = tool_calls[0].get("function", {}).get("arguments")
-        try:
-            parsed = json.loads(arguments or "{}")
-        except json.JSONDecodeError:
-            print(f"LLM tool call returned malformed JSON arguments: {arguments!r}")
-            return None
-        return parsed if isinstance(parsed, dict) else None

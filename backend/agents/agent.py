@@ -1,6 +1,6 @@
 from llm import LLMClient
 from observability import trace_operation
-from retrieval import retriever
+from memory.retrieval import retriever
 from memory.persona_store import persona_store
 
 # 地点/居民常量与工具定义都在 tools.py：目的地白名单本质上就是 move_to
@@ -196,40 +196,6 @@ class Agent:
             "Decide the single next thing you will do. Satisfy urgent needs first; "
             "otherwise act in character and vary your day. Use plain English only."
         )
-
-    def decide_next_action(self, internal_state, triggers, day_number, time_text,
-                           current_location, last_action=None, world=None):
-        """单步决策：强制调用 move_to，一次定一个动作。
-
-        这是改造前的决策方式，现在只保留给两处使用：不需要多步推理的
-        调用方，以及测试。真正的多步决策在 ``runtime.py`` 的循环里，
-        那里模型会自己在工具之间做选择。
-        """
-        self.memory.set_life_day(day_number or 1)
-
-        context = self.build_decision_context(
-            internal_state, triggers, day_number, time_text, current_location, last_action
-        )
-        move_to = get_tool("move_to")
-
-        with trace_operation("decision", self.name):
-            arguments = self.llm.call_tool(
-                self.name,
-                context,
-                tool_name=move_to.name,
-                tool_description=move_to.description,
-                parameters=move_to.to_function_schema(self.name)["function"]["parameters"]
-            )
-
-        result = move_to.handler(self, arguments, world)
-        if result["ok"]:
-            decision = dict(result["decision"])
-            decision["source"] = "llm"
-            return decision
-
-        fallback = self.fallback_next_action(triggers)
-        fallback["source"] = "fallback"
-        return fallback
 
     def fallback_next_action(self, triggers):
         """当 LLM 不可用时使用的确定性、由需求驱动的规则，

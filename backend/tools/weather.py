@@ -32,8 +32,8 @@ def handle_check_weather(agent, args, world=None):
     游戏日只做一次，绝不放在裁决动作的路径上。所以这个工具本身永远不会
     因为网络问题而失败。
     """
-    from weather import describe, is_severe, weather_service
-    from world import EMPTY_WORLD, format_clock
+    from world.weather import describe, is_severe, weather_service
+    from world.snapshot import EMPTY_WORLD, format_clock
 
     world = world or EMPTY_WORLD
     try:

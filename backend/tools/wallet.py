@@ -17,7 +17,7 @@
 """
 
 from tools.base import THOUGHT_FIELD, accept, reject
-from tools.locations import AGENT_NAMES
+from world.locations import AGENT_NAMES
 
 CHECK_BALANCE_PARAMETERS = {
     "type": "object",
@@ -36,7 +36,7 @@ def handle_check_balance(agent, args, world=None):
     到尾没变过——每一次都是一整轮 LLM 调用，只为确认一件她本来就看得见
     的事。handler 留在这里作为记录，也方便将来若有别的用途再挂回去。
     """
-    from economy import economy
+    from world.economy import economy
 
     purse = economy.balance(agent.name)
     bag = economy.holdings(agent.name)
@@ -72,7 +72,7 @@ def handle_transfer(agent, args, world=None):
 
     ⚠️ 不可逆：转错了没有撤销。所以宁可在这里多拒绝，也不能事后补救。
     """
-    from economy import economy
+    from world.economy import economy
 
     recipient = (args or {}).get("to")
     if recipient not in AGENT_NAMES:
@@ -125,8 +125,8 @@ def handle_give_item(agent, args, world=None):
     这是"帮别人跑腿"唯一的终点。没有它，Emma 买到的药永远送不到 Adam
     手上，"给某人带样东西"这类任务也就永远无法判定完成。
     """
-    from economy import economy
-    from world import EMPTY_WORLD, area_of
+    from world.economy import economy
+    from world.snapshot import EMPTY_WORLD, area_of
 
     world = world or EMPTY_WORLD
     receiver = (args or {}).get("to")

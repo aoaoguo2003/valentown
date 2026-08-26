@@ -25,18 +25,60 @@ recall → check_inbox → send_mail → stay("等回音")
 
 ## 架构分层
 
-| 层 | 文件 | 职责 |
-|---|---|---|
-| **世界状态** | `world.py` `mailbox.py` `economy.py` `weather.py` `goals.py` | 世界里有什么、规则是什么。数据 + 原子操作。 |
-| **工具** | `tools/`（包） | agent 能对世界做什么。每个工具 = schema + handler。 |
-| **运行时** | `runtime.py` | 决策循环。**不认识任何具体工具。** |
-| **路由** | `main.py` | 两段锁：取快照 / 提交决策。 |
-| **居民** | `agents/agent.py` | 角色定义 + 上下文组装。常量从 `tools` re-export。 |
-
-`tools/` 包的内部分层：
+依赖方向是**严格单向**的，从下往上：
 
 ```
-locations.py       小镇的地理与居民名册（不依赖任何项目模块，可被 world.py 安全导入）
+world/          小镇里有什么、规则是什么。数据 + 原子操作
+   ↑            只依赖 config 和它自己
+tools/          agent 能对世界做什么。每个工具 = schema + handler
+   ↑
+runtime/        决策循环。不认识任何具体工具
+   ↑
+api/ + main.py  HTTP 契约与启动入口
+```
+
+`agents/`（角色定义 + 上下文组装）、`memory/`（记忆与检索）、
+`observability/`（追踪与指标）横跨在旁边，被上面几层使用。
+
+| 包 | 职责 |
+|---|---|
+| **`world/`** | 世界服务。`clock` `locations` `economy` `weather` `goals` `mailbox` `snapshot` |
+| **`tools/`** | 工具注册表。14 件工具，每件 = schema + handler + 三个标记 |
+| **`runtime/`** | `agent_runtime.py` 决策循环（不认识任何具体工具）、`scheduler.py` 隔离小镇 + 全局时钟 |
+| **`agents/`** | `agent.py` 角色与上下文组装，`state.py` 需求值与触发器 |
+| **`memory/`** | 记忆库、三因子检索、反思、persona |
+| **`observability/`** | `trace.py` 写日志（热路径），`metrics.py` 读日志算指标 |
+| **`evals/`** | 做得好不好。`scenarios` 出题 · `ablations` 对照 · `runner` + `report` 记分卡 |
+| **`llm/`** | `client.py`，和大模型唯一的接触面 |
+| **`api/`** | `routes.py` Flask 路由。两段锁：取快照 / 提交决策 |
+| `main.py` | 薄启动器，`from api.routes import app` 然后 run |
+| `config.py` | 全局配置 |
+
+### `world/` —— 整个后端的地基
+
+```
+clock.py      时间文本 <-> 分钟数。一个项目模块都不 import
+locations.py  地理与居民名册。ALLOWED_DESTINATIONS 就是 move_to 的取值范围
+economy.py    钱 + 货 + 店铺。**故意不拆成 inventory + economy**（见规则 3）
+weather.py    天气。这个项目唯一的真外部依赖
+mailbox.py    信箱
+goals.py      任务与约定。共享的承诺账本，约定给双方各建一条
+snapshot.py   把上面这些装配成一份给模型看的快照。**唯一的装配点**（规则 4）
+__init__.py   ⚠️ 必须保持空的
+```
+
+⚠️ **`world/__init__.py` 里一个 import 都不能加。**`tools/__init__.py` 顶层要
+`from world.economy import SHOP_OWNERS`，这会先跑一遍那个 `__init__`；它若
+import 了 `tools`（哪怕只为 re-export 一个常量），就绕回去了——**循环导入，
+整个后端起不来**。
+
+对比 `runtime/__init__.py` 和 `llm/__init__.py`：那两个**可以** re-export，
+因为没有任何下层模块会反过来 import 它们。规则一句话——
+**`__init__` 里放不放东西，取决于这个包会不会被它的下游 import。**
+
+### `tools/` —— 门
+
+```
 base.py            ToolSpec · reject/accept · THOUGHT_FIELD
 movement.py        move_to · stay · sleep            占用游戏时间，会收敛本轮
 communication.py   send_mail · check_inbox           改变世界但不占时间
@@ -49,16 +91,98 @@ remembering.py     recall                            纯查询
 __init__.py        TOOL_REGISTRY + get_tool/function_schemas + re-export
 ```
 
-**工具是门，状态模块是房间。**每加一个系统都是这个模式：
-`mailbox.py + tools/communication.py`、`economy.py + tools/shopping.py`。
-**这条路已经走过五遍**（stay、通信、库存、钱包、天气），`runtime.py`
+**工具是门，世界服务是房间。**每加一个系统都是这个模式：
+`world/mailbox.py + tools/communication.py`、`world/economy.py + tools/shopping.py`。
+**这条路已经走过五遍**（stay、通信、库存、钱包、天气），决策循环
 从写完到现在一行没改过——这是注册表设计最好的证据。
 
-依赖方向：`tools/movement.py` 等在**函数内部**才 import `world`，
-所以 `world.py` 能在模块顶层 `from tools.locations import AGENT_NAMES`
-而不引起循环。
+### `observability/` —— 两个方向
 
----
+```
+trace.py     写。每次 LLM 调用、每步工具调用当场追加一条 JSONL。在热路径上
+metrics.py   读。行为指标（summarise）+ 成本指标（summarise_cost）。零项目依赖
+
+**行为和成本来自两份日志，故意不并成一张表**：动作日志一步一条，
+LLM 日志一次请求一条——**一步不等于一次请求**（重试会多几次，兜底则
+一次都不发）。硬凑成一行会让人以为它们是同一批样本。
+__init__.py  只 re-export 写那一侧——读日志的工具不该让写日志的热路径多付钱
+```
+
+⚠️ **`observability` 回答「发生了什么」，`evals/` 回答「做得好不好」。**
+所以 `metrics.py` 里没有任何场景知识，随便一份线上日志都能算；
+「任务达成没达成」得对着题目才判得了，那个归 `evals/`。
+
+`metrics.py` 故意**不 import 工具注册表**（为了能独立对着任何一份日志跑），
+代价是分类可能和代码走散，所以 `test_metrics.py` 里有两个对账测试：
+一个拿真注册表核工具分类，一个扫源码里所有 `reject(...)` 核拒绝理由。
+谁先走散谁红。
+
+### `evals/` —— 做得好不好
+
+```
+scenarios.py   场景注册表：seed(埋一个起因) + judge(只看世界状态判成败)
+ablations.py   消融注册表：关掉一个能力再跑同一道题
+runner.py      跑 场景 x 消融 x 重复，每格一座独立小镇，判据一过就早停
+report.py      记分卡排版
+```
+
+**判据只看世界状态**：`holdings("Adam Harris")["cold_medicine"] > 0`。
+不看模型说没说"我送到了"。
+
+⚠️ **判据里不掺行为指标。**「买到了 **且** 没反复撞墙」——后半句是行为不是
+世界状态，混进 `passed` 就把这条原则搞糊了。记分卡里两列并排：judge 说过没过，
+metrics 说撞了几次。
+
+⚠️ **一道题埋完之后判据必须是「没做到」。**否则早停会在第一批决策后立刻触发，
+那一格什么都没测到却显示满分——不报错，只是记分卡说谎。
+`test_evals.py` 逐条钉死了这一点。
+
+**消融是这套东西最值钱的部分**——基线自己跑出 80% 说明不了什么；基线 80%、
+关掉某个能力掉到 20%，那个能力才算被证明有用。
+
+⚠️ **`single-step` 不是「改造前」，`pre-rebuild` 才是。**
+改造前是「只有 `move_to` + 强制调用 + 单步」，模型每轮必定产出一个动作。
+而 `single-step` 给了它十四件工具的选择权却不给第二步——它一旦挑了
+`check_inbox`，这一轮就作废了（首跑：空转轮次 18–21%，基线 5–7%，
+改变世界的动作 0 个）。**拿它冒充改造前是稻草人**：它比改造前更差，
+而差的那部分不是改造带来的。
+
+读表时另一个坑：**单步的两条消融，「无效调用率」必然是 0**——不是它们
+更准，是 `already_known` / `rate_limited` 天生需要前一步存在。
+
+挑消融项的标准是**信息量不是覆盖率**：`no-outgoing-mail` 只摘 `send_mail`
+而保留 `check_inbox`——三道题的起因都在信箱里，连收信一起摘必然零分，
+跑它只是烧钱确认"看不见任务就做不成任务"。
+
+### `runtime/scheduler.py` —— 两个调用方共用的引擎
+
+`dry_run` 和 `evals/runner` 跑的是同一份代码，只有"跑完拿它干什么"不同。
+不共用的话，规则 4 那个教训会原样重演一遍。
+
+`Town` 是个上下文管理器，进块时把**九处**全局指向沙盒，出块时原样还原。
+还原是给评估用的：一次评估在同一进程里连跑几十座小镇，漏还原一处，
+第二座就继承了第一座的世界。
+
+⚠️ `persona_store` 换的是**对象身上的目录**，不是模块上的名字——
+`agents/agent.py` 和 `memory/reflection.py` 都在模块顶层绑死了那个对象。
+（这个缺口是抽 scheduler 时才发现的：`dry_run` 一直宣称"一个字节都不碰真实
+存档"，而每晚的反思其实都写进了真实的 `memory/agent_personas/`。）
+
+⚠️ **评估时天气必须钉死。**天气是真实伦敦数据，今天下雨明天不下，
+同一道题两次跑就不可比了——那对比的是天气，不是模型。`Town` 默认关掉
+真实调用走降级路径，它用 `life_day` 做种子。
+
+### 分包时踩到的两个坑
+
+**① 字符串形式的 monkeypatch 目标躲过一切 import 重写。**
+`monkeypatch.setattr("economy.economy", store)` 里的模块路径是个字符串，
+正则扫 import 语句扫不到它，25 处全在测试里。改模块名时记得连它一起找。
+
+**② 一个被迫存在的重复，随着环消失而消失。**
+`SHOP_OWNERS` 曾被复制成两份，注释写着理由：`world.py` 要 import `tools`，
+`tools` 要 import `economy`，反向导入就成环。`locations.py` 搬进 `world/`
+之后 `snapshot.py` 不再依赖 `tools`，环没了，复制也就删了。
+**分包真正的回报不是文件挪了位置，是这种东西。**
 
 ## 五条不能破的规则
 
@@ -137,7 +261,7 @@ LLM 调用（最长 60 秒）和天气请求都在锁外完成，锁只在取快
 
 ---
 
-## 决策循环（`runtime.py`）
+## 决策循环（`runtime/agent_runtime.py`）
 
 三个出口，缺一不可：
 
@@ -247,11 +371,13 @@ Pharmacy 四种药各 8 元/**上限仅 2 个**（稀缺是故意的，否则超
 ## 命令
 
 ```bash
-cd backend && python -m pytest tests/ -q      # 226 个测试，无 LLM 调用、无真实网络
+cd backend && python -m pytest tests/ -q      # 298 个测试，无 LLM 调用、无真实网络
 node scripts/smoke_24h.js                     # 路径 smoke test
 python scripts/dry_run.py --days 2            # 真实 LLM 驱动整座小镇（花钱）
 python scripts/dry_run.py --days 2 --scenario errand   # 埋一个起因，验证协作链
-python eval/run_eval.py --repeats 2           # 端到端，会真实调 LLM
+python -m observability.metrics logs/action_trace.jsonl   # 从日志算行为指标（离线、免费）
+python -m evals.runner --scenario scarcity --ablate none        # 跑一格（花钱）
+python -m evals.runner --scenario all --ablate all --repeats 2  # 整张记分卡（很花钱）
 ```
 
 ---
@@ -265,6 +391,16 @@ python eval/run_eval.py --repeats 2           # 端到端，会真实调 LLM
 - 工具白名单（只按**永久**资格筛）、重复查询拦截、动作时长裁剪
 - 并发验证：七人并发 0.25s vs 串行 1.43s
 - 装配冒烟测试（`test_app.py`）——曾经 215 个测试全绿而 `main.py` 起不来
+- **删掉改造前的单步决策路径**（`decide_next_action` / `llm.call_tool` / 旧 `eval/`）——
+  代码库里只剩一条决策路径了。删掉的三个测试不丢覆盖，都能在新路径的测试里找到对应
+- **指标层**（`observability/metrics.py`）：从动作日志算行为指标，15 个测试
+- **按框架分包**：`world/` `runtime/` `llm/` `api/` `evals/` 建起来了，106 处 import 跟着改。
+  依赖方向变成严格单向，`SHOP_OWNERS` 那份被环逼出来的重复也跟着删了
+- **评估集**：`runtime/scheduler.py`（`dry_run` 和 `evals` 共用的引擎）+ 四道题 +
+  七种消融 + 记分卡。`scarcity` 首跑 PASS，**没有超卖**——那把原子锁第一次被真正考验
+- **成本指标**：token / 延迟 / 重试从 LLM 日志算，评估按格拆
+- **架构约束进了测试**（`tests/test_layout.py`）：存档必须在 backend/ 根下、
+  `world/` 顶层不许 import 上层、`world/__init__.py` 必须空、`SHOP_OWNERS` 只许有一处
 
 **离线试跑跑出来的结论**（`scripts/dry_run.py`）
 
@@ -281,30 +417,51 @@ Adam 买药，而她差 5 块钱。
 ⚠️ 但 `accept_meeting` 只被用了 1 次，而「找不到人」仍有 44 次——**机制是通的，
 模型用得少**。下一步该看的是怎么让它更常想到「先约个时间」。
 
-**接下来**
-- 评估集：把 `--scenario` 扩成一组固定用例 + baseline 对照（关掉某个能力再跑）
-- `run_eval.py` 仍挂在旧的单步路径上（见下节）
-- 可选：`main.py` 515 行可抽个 `persistence.py`
-- 可选：事件队列（把「现在是什么状态」换成「发生过什么」）；真中断要改前端，不做
+**接下来**（按建议顺序 A → B → D → C）
 
-## ⚠️ 两条平行的决策路径
+### A. 评估收尾
 
-改造后决策逻辑有两条路，**改一条时必须想到另一条**：
+- [ ] **A1** 全矩阵记分卡跑完读数（3 道题 x 6 消融 x 2 次）
+- [ ] **A2** 补跑 `pre-rebuild` —— 矩阵启动早于这条消融，那一轮里没有它
+- [x] ~~token / 耗时接进指标层~~（`summarise_cost`，按格拆）
+- [x] ~~`pre-rebuild` 消融~~（`single-step` 不是改造前，见 `evals/ablations.py`）
 
-```
-生产:  main.py -> runtime.run_decision_loop -> llm.call_tools
-       7 个工具、多步循环、环境会拒绝、提交前重校验
+### B. 评估指出来的问题（每改一条，跑同一张记分卡对比）
 
-评估:  eval/run_eval.py -> agent.decide_next_action -> llm.call_tool
-       单步、强制单函数、只有 move_to      <- 改造前的老路
-```
+- [ ] **B1 跨轮不该重走死路。** errand 的 trace 铁证：Emma 在 9:20 / 10:35 / 11:50
+  把「走到药房 → 买 → 差 5 块 → 兜底」原样重演三遍。轮**内** replan 92.9% 很好，
+  轮**与轮之间**只传了一条 `last_observation`。对应框架里的 `BLOCKED / WAITING`
+- [ ] **B2 JSON 参数解析失败 = 直接兜底，惩罚过重。** 模型把 `"nobody"` 写成裸
+  `nobody`，`call_tools` 返回 None，循环判成「LLM 不可用」当场放弃整轮；而编错
+  工具名只被拒一步还能重来。同样的小错，代价差一个数量级——该给它一次带着
+  「你的 JSON 坏了」重来的机会
+- [ ] **B3 `already_known` 拦下了，但仍烧掉一整轮 LLM 调用。** 三天真跑 45 次
+- [ ] **B4 视 `rendezvous` 结果决定要不要动约见面。** `target_absent` 44–53 次，
+  `accept_meeting` 三天只用过 1 次
+- [ ] **B5 输入 token 的 85% 是工具 schema。** 两天真跑实测：一次决策
+  `prompt_tokens` 中位 4279，而 messages 只有约 649 tokens——**真正的决策上下文
+  只占 15%**。schema 每次调用一模一样。三个方向：prompt 缓存、瘦身
+  `destination` 那个 112 值枚举（一件占 20%）、按人裁剪工具。
+  ⚠️ 但**不能按「此刻能不能用」裁**：看不见的能力模型不会为它做计划
+- [ ] **待定** 拒绝理由要不要往出路上指（「你可以写信问别人借」）。这是
+  **喂答案 vs 测能力**的取舍，得先定了才好动
 
-也就是说 **eval 现在测的不是生产走的那条路**，它全绿并不能说明新循环没问题。
-tests/test_core.py 里的三个测试同样挂在旧路径上。
+### C. 框架里规划了、还没长出来的
 
-用户决定评估留到项目改完再统一重做（届时评分标准也要重设计：该测工具选得对
-不对、被拒后会不会重规划、无效调用率，而不只是目的地对不对症）。
-在那之前 `decide_next_action` 和 `llm.call_tool` **不能删**。
+- [ ] **C1** `runtime/context_builder.py` —— 现在是 `agents/agent.py` 里 110 行的
+  `build_decision_context`。⚠️ 抽它的理由是**可测、可讲**，不是省 token（见 B5）
+- [ ] **C2** `runtime/budgets.py` —— 框架 Phase 7 缺的唯一一项：token / 每日调用预算
+- [ ] **C3** `api/persistence.py` —— `routes.py` 五百多行里六个路由是纯存档读写
+- [ ] **C4** `world/events.py` + 事件驱动唤醒。
+  ⚠️ **真事件驱动要改前端**（`game.js` 才是生产的 scheduler），而约定是前端不改。
+  守约定的话只能做后端半事件驱动：事件进队列，等该居民下次来问时作为 trigger 塞进 context
+
+### D. 呈现（投递用，需要 A/B 的数字才写得好）
+
+- [ ] **D1 README 重写** —— 现在通篇还在讲「模型被强制填一张表」，一个字没提
+  工具注册表、会拒绝的世界、四个世界系统、评估集。**这是简历链接过去第一眼看到的**
+- [ ] **D2** 记分卡数字进 README（「基线 ✓ / 改造前 ✗」比任何形容词都硬）
+- [ ] **D3** GitHub About + topics + 演示 GIF
 
 ## 工作约定
 

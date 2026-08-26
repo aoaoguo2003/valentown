@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""汇总由 backend/observability.py 生成的 LLM 调用追踪日志。
+"""汇总由 backend/observability/trace.py 生成的 LLM 调用追踪日志。
 
 读取 JSONL 格式的追踪记录（每条记录对应一次 LLM 调用），并打印汇总指标：
 调用量、成功/失败/降级（fallback）比率、延迟百分位数、token 用量，

@@ -2,23 +2,28 @@
 
 包的结构对应工具的分类：
 
-    locations.py       小镇的地理与居民名册（不依赖任何项目模块）
     base.py            ToolSpec、执行结果构造、共用参数片段
-    movement.py        move_to · stay            占用游戏时间，会收敛本轮
+    movement.py        move_to · stay · sleep    占用游戏时间，会收敛本轮
     communication.py   send_mail · check_inbox   改变世界但不占时间
-    shopping.py        check_stock · buy         同上
+    shopping.py        check_stock · buy · restock   同上
+    wallet.py          transfer · give_item      同上
+    tasks.py           accept_task               记下跨轮才做得完的事
+    meetings.py        accept_meeting            和人约时间地点
+    weather.py         check_weather             纯查询
     remembering.py     recall                    纯查询
 
-**工具是门，状态模块是房间。**数据和原子操作在 world.py / mailbox.py /
-inventory.py 里，这里的 handler 只负责判断"你有没有资格进"，以及把结果
-翻译成模型看得懂的一句话。
+**工具是门，世界服务是房间。**数据和原子操作全在 ``world/`` 包里
+（``economy`` · ``mailbox`` · ``goals`` · ``weather`` · ``locations``），
+这里的 handler 只负责判断"你有没有资格进"，以及把结果翻译成模型看得懂
+的一句话。依赖方向是单向的：``tools`` 依赖 ``world``，``world`` 不认识
+``tools``。
 
 决策循环不需要认识任何具体工具，只需要问一句
 ``if spec.terminal and result["ok"]: break``。往注册表里加新工具时——
-新增一个模块、在下面登记一条——``runtime.py`` 一行都不用改。
+新增一个模块、在下面登记一条——``runtime/`` 一行都不用改。
 """
 
-from economy import SHOP_OWNERS
+from world.economy import SHOP_OWNERS
 from tools.base import (  # noqa: F401  （re-export，调用方无需知道内部分层）
     THOUGHT_FIELD,
     ToolSpec,
@@ -31,7 +36,7 @@ from tools.communication import (
     handle_check_inbox,
     handle_send_mail,
 )
-from tools.locations import (  # noqa: F401  （re-export）
+from world.locations import (  # noqa: F401  （re-export）
     AGENT_NAMES,
     ALLOWED_DESTINATIONS,
     DEFAULT_ACTION_MINUTES,

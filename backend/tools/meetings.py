@@ -24,7 +24,7 @@
 """
 
 from tools.base import THOUGHT_FIELD, accept, reject
-from tools.locations import AGENT_NAMES, MEETING_AREAS
+from world.locations import AGENT_NAMES, MEETING_AREAS
 
 ACCEPT_MEETING_PARAMETERS = {
     "type": "object",
@@ -68,8 +68,8 @@ def handle_accept_meeting(agent, args, world=None):
     履约判定要求**两个人都在**那个区域。只查自己的话，一个人在空荡荡的
     公园干等也会被算作赴约成功，那这个指标就没有意义了。
     """
-    from goals import goal_store
-    from world import EMPTY_WORLD, format_clock
+    from world.goals import goal_store
+    from world.snapshot import EMPTY_WORLD, format_clock
 
     world = world or EMPTY_WORLD
     other = (args or {}).get("with_person")

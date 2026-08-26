@@ -26,7 +26,7 @@ from agents.agent import (
 )
 from memory.memory_system import MemorySystem
 from runtime import run_decision_loop
-from world import World
+from world.snapshot import World
 
 # 单次"网络调用"的模拟耗时。取值要够大以盖过调度噪声，
 # 又够小以免拖慢测试。

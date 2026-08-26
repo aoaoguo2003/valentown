@@ -5,7 +5,7 @@
 from agents.agent import RonParker, EmmaHarris
 from memory.memory_system import MemorySystem
 from tools import get_tool
-from world import (
+from world.snapshot import (
     CUSTOMER_CAPACITY,
     OPENING_HOURS,
     SHOP_OWNERS,
@@ -352,10 +352,10 @@ def test_a_non_owner_is_still_refused_at_the_handler(tmp_path, monkeypatch):
     schema 里看不见只是让模型不会去选；真有谁绕过去直接调，拒绝仍然发生
     在 handler 里。两道防线各管一件事：一道省钱，一道保证正确。
     """
-    from economy import Economy
+    from world.economy import Economy
     from tools import get_tool
 
-    monkeypatch.setattr("economy.economy", Economy(path=tmp_path / "e.json"))
+    monkeypatch.setattr("world.economy.economy", Economy(path=tmp_path / "e.json"))
     emma = _make_agent(tmp_path, EmmaHarris, "Supermarket.Checkout")
     world = World(time_minutes=_minutes(10),
                   agent_locations={"Emma Harris": "Supermarket.Checkout"})
@@ -377,7 +377,7 @@ def _sleep(agent, world, minutes=480):
 def test_sleep_can_run_far_past_the_normal_action_cap(tmp_path):
     # 普通动作最长 180 分钟，睡到天亮要八九个小时——没有这个工具的话，
     # 模型得连着决策三次才能睡过一夜，每次都是一整轮 LLM 调用。
-    from tools.locations import MAX_ACTION_MINUTES, MAX_SLEEP_MINUTES
+    from world.locations import MAX_ACTION_MINUTES, MAX_SLEEP_MINUTES
 
     agent = _make_agent(tmp_path, location="Ron_home.Sofa")
     world = World(time_minutes=22 * 60, agent_locations={"Ron Parker": "Ron_home.Sofa"})
@@ -421,7 +421,7 @@ def test_sleeping_in_someone_elses_house_is_refused(tmp_path):
 def test_sleep_action_text_triggers_the_energy_reset(tmp_path):
     # agent_state 靠关键词判断这次动作算不算休息。有了这个工具之后，
     # 那个判断第一次有了明确来源，而不是从自由文本里猜。
-    from agent_state import is_sleep_action
+    from agents.state import is_sleep_action
 
     agent = _make_agent(tmp_path, location="Ron_home.Sofa")
     world = World(time_minutes=22 * 60, agent_locations={"Ron Parker": "Ron_home.Sofa"})
@@ -453,21 +453,21 @@ def test_snapshot_carries_every_store(tmp_path, monkeypatch):
     ⚠️ 现有的两百多个测试一个都发现不了这种事，因为它们全都手工构造
     World、只填自己关心的字段。这条测的是**组装**本身。
     """
-    from economy import Economy
-    from goals import GoalStore
-    from mailbox import Mailbox
-    from weather import WeatherService
-    from world import snapshot
+    from world.economy import Economy
+    from world.goals import GoalStore
+    from world.mailbox import Mailbox
+    from world.weather import WeatherService
+    from world.snapshot import snapshot
 
     economy = Economy(path=tmp_path / "economy.json")
-    monkeypatch.setattr("economy.economy", economy)
-    monkeypatch.setattr("mailbox.mailbox", Mailbox(path=tmp_path / "mail.json"))
-    monkeypatch.setattr("weather.weather_service",
+    monkeypatch.setattr("world.economy.economy", economy)
+    monkeypatch.setattr("world.mailbox.mailbox", Mailbox(path=tmp_path / "mail.json"))
+    monkeypatch.setattr("world.weather.weather_service",
                         WeatherService(fetcher=lambda: [0] * 24))
 
     economy._balances["Emma Harris"] = 42
     economy._holdings["Emma Harris"] = {"cold_medicine": 1}
-    from mailbox import mailbox
+    from world.mailbox import mailbox
     mailbox.send("Gavin Harris", "Emma Harris", "hi", "are you free")
 
     world = snapshot(
@@ -491,16 +491,16 @@ def test_a_delivery_goal_can_be_judged_from_a_snapshot(tmp_path, monkeypatch):
     holdings 缺失时 is_met 永远返回 False，任务全部超时判负——而日志里
     看不出任何异常，只会觉得"模型没做到"。
     """
-    from economy import Economy
-    from goals import DELIVER, GoalStore
-    from mailbox import Mailbox
-    from weather import WeatherService
-    from world import snapshot
+    from world.economy import Economy
+    from world.goals import DELIVER, GoalStore
+    from world.mailbox import Mailbox
+    from world.weather import WeatherService
+    from world.snapshot import snapshot
 
     economy = Economy(path=tmp_path / "economy.json")
-    monkeypatch.setattr("economy.economy", economy)
-    monkeypatch.setattr("mailbox.mailbox", Mailbox(path=tmp_path / "mail.json"))
-    monkeypatch.setattr("weather.weather_service",
+    monkeypatch.setattr("world.economy.economy", economy)
+    monkeypatch.setattr("world.mailbox.mailbox", Mailbox(path=tmp_path / "mail.json"))
+    monkeypatch.setattr("world.weather.weather_service",
                         WeatherService(fetcher=lambda: [0] * 24))
     economy._holdings["Adam Harris"] = {"cold_medicine": 1}
 

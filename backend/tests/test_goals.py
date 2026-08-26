@@ -7,11 +7,11 @@
 import pytest
 
 from agents.agent import EmmaHarris
-from economy import Economy
-from goals import DELIVER, MAX_ACTIVE, GoalStore
+from world.economy import Economy
+from world.goals import DELIVER, MAX_ACTIVE, GoalStore
 from memory.memory_system import MemorySystem
 from tools import get_tool
-from world import World
+from world.snapshot import World
 
 
 @pytest.fixture
@@ -22,7 +22,7 @@ def store(tmp_path):
 @pytest.fixture
 def wallet(tmp_path, monkeypatch):
     economy = Economy(path=tmp_path / "economy.json")
-    monkeypatch.setattr("economy.economy", economy)
+    monkeypatch.setattr("world.economy.economy", economy)
     return economy
 
 
@@ -164,7 +164,7 @@ def test_goals_survive_a_restart(tmp_path):
 # ---------- accept_task 工具 ----------
 
 def _accept(agent, world, monkeypatch, store, **kwargs):
-    monkeypatch.setattr("goals.goal_store", store)
+    monkeypatch.setattr("world.goals.goal_store", store)
     args = {"thought": "I should remember this", "item": "cold_medicine",
             "for_person": "Adam Harris", "by_hour": 18, "reason": "Adam is ill"}
     args.update(kwargs)
@@ -212,7 +212,7 @@ def test_accept_task_costs_no_game_time():
 
 def test_giving_completes_a_delivery_task(tmp_path, monkeypatch, store, wallet):
     # 整条链的最后一步：买到手 -> 当面交出去 -> 任务达成。
-    monkeypatch.setattr("goals.goal_store", store)
+    monkeypatch.setattr("world.goals.goal_store", store)
     emma = _agent(tmp_path, "Pharmacy.Medicine_shelf")
     wallet._balances["Emma Harris"] = 50
     wallet.buy("Emma Harris", "cold_medicine")

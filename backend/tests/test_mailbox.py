@@ -7,10 +7,10 @@ import threading
 import pytest
 
 from agents.agent import RonParker
-from mailbox import INBOX_LIMIT, Mailbox
+from world.mailbox import INBOX_LIMIT, Mailbox
 from memory.memory_system import MemorySystem
 from tools import get_tool
-from world import World
+from world.snapshot import World
 
 
 @pytest.fixture
@@ -136,7 +136,7 @@ def _send(agent, world=None, **kwargs):
 
 
 def test_send_mail_tool_delivers_and_says_so(agent, monkeypatch, box):
-    monkeypatch.setattr("mailbox.mailbox", box)
+    monkeypatch.setattr("world.mailbox.mailbox", box)
     result = _send(agent, World(time_minutes=10 * 60))
 
     assert result["ok"] is True
@@ -145,7 +145,7 @@ def test_send_mail_tool_delivers_and_says_so(agent, monkeypatch, box):
 
 
 def test_send_mail_rejects_writing_to_yourself(agent, monkeypatch, box):
-    monkeypatch.setattr("mailbox.mailbox", box)
+    monkeypatch.setattr("world.mailbox.mailbox", box)
     result = _send(agent, to="Ron Parker")
 
     assert result["ok"] is False
@@ -153,12 +153,12 @@ def test_send_mail_rejects_writing_to_yourself(agent, monkeypatch, box):
 
 
 def test_send_mail_rejects_empty_body(agent, monkeypatch, box):
-    monkeypatch.setattr("mailbox.mailbox", box)
+    monkeypatch.setattr("world.mailbox.mailbox", box)
     assert _send(agent, body="   ")["reason"] == "empty_body"
 
 
 def test_check_inbox_returns_content_and_clears_the_flag(agent, monkeypatch, box):
-    monkeypatch.setattr("mailbox.mailbox", box)
+    monkeypatch.setattr("world.mailbox.mailbox", box)
     box.send("Ella Parker", "Ron Parker", "dinner", "Shall we eat at seven?")
 
     result = get_tool("check_inbox").handler(agent, {"thought": "let me look"}, None)
@@ -170,7 +170,7 @@ def test_check_inbox_returns_content_and_clears_the_flag(agent, monkeypatch, box
 
 def test_check_inbox_on_an_empty_box_is_a_success_not_a_failure(agent, monkeypatch, box):
     # 空手而归是有效结果：模型据此该停止翻邮箱，而不是当成错误重试。
-    monkeypatch.setattr("mailbox.mailbox", box)
+    monkeypatch.setattr("world.mailbox.mailbox", box)
     result = get_tool("check_inbox").handler(agent, {"thought": "anything new?"}, None)
 
     assert result["ok"] is True
@@ -196,7 +196,7 @@ def test_unread_count_rides_along_with_the_world_snapshot():
 
 
 def test_context_shows_the_count_but_never_the_content(agent, monkeypatch, box):
-    monkeypatch.setattr("mailbox.mailbox", box)
+    monkeypatch.setattr("world.mailbox.mailbox", box)
     box.send("Ella Parker", "Ron Parker", "secret plan", "Meet me at the bridge at nine.")
 
     context = agent.build_decision_context(

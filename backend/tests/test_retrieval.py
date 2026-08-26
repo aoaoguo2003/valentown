@@ -2,7 +2,7 @@
 使测试保持离线且结果确定（无需下载模型）。"""
 
 from memory.memory_system import MemoryRecord
-from retrieval import MemoryRetriever, _cosine, _minmax
+from memory.retrieval import MemoryRetriever, _cosine, _minmax
 
 # 桩嵌入空间：三个相互独立的主题轴。
 TOPICS = {

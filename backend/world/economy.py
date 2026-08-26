@@ -41,7 +41,9 @@ import json
 import threading
 from pathlib import Path
 
-ECONOMY_FILE = Path(__file__).with_name("economy.json")
+from config import DATA_DIR
+
+ECONOMY_FILE = DATA_DIR / "economy.json"
 
 # 除了店主，没有人有职业收入：每人每三天领一次社保。
 # 一天摊下来 5 块，买不起一杯 8 块的咖啡——借钱因此是必需行为，不是点缀。
@@ -91,9 +93,12 @@ CATALOG = {
 # 所有商品名的扁平集合，供工具的参数 schema 使用。
 ALL_ITEMS = sorted({item for shop in CATALOG.values() for item in shop["items"]})
 
-# 谁经营哪家店——顾客付的钱进他口袋。
-# 这里本地定义而不是从 world.py 导入：world 会导入 tools，tools 会导入
-# economy，从 economy 反向导入 world 就成环了。两处必须保持一致。
+# 谁经营哪家店——顾客付的钱进他口袋。这是唯一的定义处。
+#
+# 它曾经被复制成两份（这里一份、world.py 一份），因为那时 world.py 顶层要
+# import tools，tools 顶层要 import economy，从 economy 反向导入 world 就成环。
+# locations.py 搬进 world/ 之后 snapshot.py 不再依赖 tools，环没了，
+# 复制也就跟着删了。
 SHOP_OWNERS = {
     "Supermarket": "Ron Parker",
     "Pharmacy": "Ella Parker",
@@ -429,6 +434,26 @@ class Economy:
                 "on_shelf": shelf[item],
                 "cap": cap,
             }
+
+    def seed(self, *, balances=None, holdings=None, stock=None):
+        """把世界直接摆成某个样子——**仅供测试与评估埋场景**。
+
+        生产路径上钱和货只能通过 buy / give / transfer / restock 流动，
+        那几条路上有锁、有校验、有原子性。这个方法把它们全绕开了。
+
+        单独开一个方法，而不是让调用方自己去改 ``_balances``，是为了让
+        "绕过规则改状态"这件事在代码里显形——搜一下 ``.seed(`` 就能找齐
+        所有埋点。散在各处的私有属性赋值做不到这一点。
+        """
+        with self._lock:
+            for name, amount in (balances or {}).items():
+                self._balances[name] = int(amount)
+            for name, bag in (holdings or {}).items():
+                self._holdings[name] = {item: int(count) for item, count in bag.items()}
+            for area, shelf in (stock or {}).items():
+                self._stock.setdefault(area, {}).update(
+                    {item: int(count) for item, count in shelf.items()})
+            self._save()
 
     def reset(self):
         """清空持有、货架补满——仅供测试与重新开局。"""

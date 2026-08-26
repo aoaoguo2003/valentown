@@ -37,11 +37,17 @@ LLM 调用最长 60 秒，绝不能持锁进行——改造前整个决策包在
 那一刻的真相为准。
 """
 
-# 用模块引用而不是 `from goals import goal_store`：后者在加载时就绑死了
-# 对象，测试和离线试跑替换单例时会失效，结果写进真实存档。
-import goals
+# 一律用模块引用，不写 `from world.goals import goal_store`：后者在加载时就
+# 绑死了对象，替换单例时会失效——测试和离线试跑会把结果写进真实存档。
+#
+# `tools` 同理，而且多一层理由：**消融实验靠替换 tools.function_schemas
+# 和 tools.get_tool 来摘掉某件工具**（关掉一个能力再跑，看任务达成率掉多少）。
+# 写成 `from tools import function_schemas` 的话，这个循环在加载时就拿到了
+# 原版函数，摘不掉——而摘不掉的后果不是报错，是消融组和基线组跑出一样的
+# 数字，看上去像"这个能力没用"。
+import tools
+import world.goals as goals
 from observability import log_action_event, trace_operation
-from tools import function_schemas, get_tool
 
 # 一轮之内允许的最大工具调用次数。绝大多数决策一步就收敛（没被拒绝），
 # 被拒后重来两三步通常够用；这个上限是护栏，不是常态。
@@ -113,13 +119,13 @@ def run_decision_loop(agent, *, internal_state, triggers, day_number, time_text,
         )
 
         with trace_operation("decision", agent.name):
-            call = agent.llm.call_tools(agent.name, context, function_schemas(agent.name))
+            call = agent.llm.call_tools(agent.name, context, tools.function_schemas(agent.name))
 
         if call is None:                                    # ③ LLM 不可用
             return _give_up(agent, triggers, scratchpad, day_number, time_text,
                             reason="llm_unavailable")
 
-        spec = get_tool(call["name"])
+        spec = tools.get_tool(call["name"])
         if spec is None:                                    # 模型编了个不存在的工具
             _record(scratchpad, trace,
                     tool=call["name"], args=call["args"], ok=False,
@@ -216,8 +222,8 @@ def _clip_to_next_deadline(agent, result, world):
 
     在约定时刻之前留一段余量，因为赶路要时间——四点整醒来是走不到公园的。
     """
-    from goals import COMMITMENT_BUFFER_MINUTES, goal_store
-    from tools.locations import MIN_ACTION_MINUTES
+    from world.goals import COMMITMENT_BUFFER_MINUTES, goal_store
+    from world.locations import MIN_ACTION_MINUTES
 
     decision = result.get("decision")
     if not decision:
@@ -239,7 +245,7 @@ def _clip_to_next_deadline(agent, result, world):
 
     decision["duration_minutes"] = clipped
     # 说明为什么变短了，否则模型下一轮会困惑于"我明明打算做三小时"。
-    from world import format_clock
+    from world.clock import format_clock
 
     result["observation"] += (
         f" You cut it short to {clipped} minutes — you are due somewhere "

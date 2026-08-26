@@ -29,7 +29,7 @@
 from dataclasses import dataclass
 from typing import Callable
 
-from tools.locations import AGENT_NAMES
+from world.locations import AGENT_NAMES
 
 
 @dataclass(frozen=True)

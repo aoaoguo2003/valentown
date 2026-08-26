@@ -1,7 +1,7 @@
 """确定性核心逻辑的单元测试：时钟解析、需求触发、按智能体隔离的滚动记忆库，
 以及由需求驱动的决策兜底逻辑。这些测试不涉及任何 LLM 调用。"""
 
-from agent_state import (
+from agents.state import (
     DEFAULT_STATE,
     clamp_state_values,
     evaluate_agent_triggers,
@@ -112,74 +112,9 @@ def test_fallback_decision_honours_top_trigger(tmp_path):
     assert idle["destination"] in ALLOWED_DESTINATIONS
 
 
-def test_decide_next_action_falls_back_without_llm(tmp_path, monkeypatch):
-    agent = _make_agent(tmp_path)
-    # 模拟 LLM 不可用的情况：决策循环仍必须产出一个有效、可执行的动作，
-    # 这样模拟才不会卡住。
-    monkeypatch.setattr(agent.llm, "call_tool", lambda *args, **kwargs: None)
-
-    decision = agent.decide_next_action(
-        internal_state={"values": {"hunger": 90, "energy": 80, "social": 70}},
-        triggers=[{"need": "hunger", "reason": "hungry", "intent": "seek_food"}],
-        day_number=1,
-        time_text="9:00 AM",
-        current_location="Ron_home.Living_room"
-    )
-    assert decision["source"] == "fallback"
-    assert decision["destination"] == "Ron_home.Kitchen"
-    assert decision["talk_to"] == "nobody"
-
-
-def test_decision_validation_rejects_bad_tool_output(tmp_path, monkeypatch):
-    agent = _make_agent(tmp_path)
-    # 模型给出的无效目的地必须被拒绝，并替换为确定性的兜底方案，
-    # 而不能直接执行。
-    monkeypatch.setattr(
-        agent.llm,
-        "call_tool",
-        lambda *args, **kwargs: {
-            "action": "sneak into a bedroom",
-            "destination": "Ella_home.Bed",
-            "duration_minutes": 60,
-            "talk_to": "nobody"
-        }
-    )
-
-    decision = agent.decide_next_action(
-        internal_state={"values": {}},
-        triggers=[],
-        day_number=1,
-        time_text="2:00 PM",
-        current_location="Park.Bench"
-    )
-    assert decision["source"] == "fallback"
-    assert decision["destination"] in ALLOWED_DESTINATIONS
-
-
-def test_decision_validation_normalizes_llm_output(tmp_path, monkeypatch):
-    agent = _make_agent(tmp_path)
-    monkeypatch.setattr(
-        agent.llm,
-        "call_tool",
-        lambda *args, **kwargs: {
-            "action": "buy groceries for dinner",
-            "destination": "Supermarket.Fruit_shelf",
-            "duration_minutes": 9999,           # 超出范围 -> 被截断
-            "talk_to": "Ron Parker"             # 自己和自己说话 -> 归为 nobody
-        }
-    )
-
-    decision = agent.decide_next_action(
-        internal_state={"values": {}},
-        triggers=[],
-        day_number=1,
-        time_text="4:00 PM",
-        current_location="Ron_home.Living_room"
-    )
-    assert decision["source"] == "llm"
-    assert decision["destination"] == "Supermarket.Fruit_shelf"
-    assert decision["duration_minutes"] == 180
-    assert decision["talk_to"] == "nobody"
+def test_the_town_roster_is_exactly_seven_people(tmp_path):
+    # 花名册是很多东西的取值范围：talk_to 的候选、收信人白名单、
+    # 转账对象。多一个少一个都会让某个 schema 悄悄变形。
     assert set(AGENT_NAMES) == {
         "Ron Parker", "Ella Parker", "Emma Harris", "Gavin Harris",
         "Adam Harris", "Mia Thompson", "Arthur Morgan"

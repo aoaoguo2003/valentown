@@ -14,8 +14,9 @@
 这个选项可选。
 """
 
-from agent_state import parse_clock_to_minutes
-from tools import AGENT_NAMES
+from world.clock import format_clock, parse_clock_to_minutes  # noqa: F401  （format_clock re-export）
+from world.economy import SHOP_OWNERS  # noqa: F401  （re-export：工具层从这里取）
+from world.locations import AGENT_NAMES
 
 # 各公共区域的营业时间（游戏内分钟，左闭右开）。
 # 公园与住宅不在表内：公园全天开放，家永远可回。
@@ -27,11 +28,6 @@ OPENING_HOURS = {
 
 # 谁经营哪家店。老板不占顾客名额，也可以在非营业时间进自己的店
 # （备货、盘点）。Café_bar 没有居民经营，那个位子始终空着。
-SHOP_OWNERS = {
-    "Supermarket": "Ron Parker",
-    "Pharmacy": "Ella Parker",
-}
-
 # 每家店同时容纳的顾客数；老板不计入。
 CUSTOMER_CAPACITY = 3
 
@@ -42,14 +38,6 @@ COMMERCIAL_AREAS = set(OPENING_HOURS)
 def area_of(location):
     """锚点 "Café_bar.Counter" 所属的区域是 "Café_bar"。"""
     return str(location or "").split(".")[0]
-
-
-def format_clock(minutes):
-    """把游戏内分钟数格式化成前端同款的 "7:00 AM" 时钟文本。"""
-    minutes = int(minutes) % (24 * 60)
-    hour24, minute = divmod(minutes, 60)
-    suffix = "AM" if hour24 < 12 else "PM"
-    return f"{hour24 % 12 or 12}:{minute:02d} {suffix}"
 
 
 class World:
@@ -103,7 +91,7 @@ class World:
 
     def balance_for(self, agent_name):
         """某人有多少钱——**只看得到自己的**，别人的钱是私事。"""
-        from economy import INITIAL_BALANCE
+        from world.economy import INITIAL_BALANCE
 
         return int(self.balances.get(agent_name, INITIAL_BALANCE))
 
@@ -113,7 +101,7 @@ class World:
 
     def weather_text(self):
         """此刻的天气，一个词。抬头就能看见，所以它免费进决策上下文。"""
-        from weather import describe
+        from world.weather import describe
 
         return describe(self.weather_code) if self.weather_code is not None else None
 
@@ -123,7 +111,7 @@ class World:
         只拦大雨、暴雪、雷暴这一类；毛毛雨和小雨照常——撑把伞就行。
         连小雨都拦的话，居民一个雨天什么都干不成，约束就成了瘫痪。
         """
-        from weather import is_severe
+        from world.weather import is_severe
 
         return self.weather_code is not None and is_severe(self.weather_code)
 
@@ -191,9 +179,9 @@ def snapshot(*, agent_locations, time_text=None, time_minutes=None, life_day=1):
     位置表仍由调用方传入，因为它的来源天生不同：线上要合并前端同步上来的
     实际位置，离线试跑则以后端记录为准。
     """
-    from economy import economy
-    from mailbox import mailbox
-    from weather import weather_service
+    from world.economy import economy
+    from world.mailbox import mailbox
+    from world.weather import weather_service
 
     if time_minutes is None:
         time_minutes = parse_clock_to_minutes(time_text)

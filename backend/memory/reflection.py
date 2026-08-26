@@ -2,7 +2,7 @@ from llm import LLMClient
 from memory.memory_system import ReflectionRecord
 from memory.persona_store import persona_store
 from observability import trace_operation
-from retrieval import retriever
+from memory.retrieval import retriever
 
 # 用于检索与身份认同相关的记忆，供更新 persona 时使用的查询语句。
 IDENTITY_QUERY = (

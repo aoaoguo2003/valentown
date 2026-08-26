@@ -49,7 +49,7 @@ def handle_recall(agent, args, world=None):
     if not records:
         return accept(f"You try to recall {query!r}, but nothing comes to mind.", memories=[])
 
-    from retrieval import retriever
+    from memory.retrieval import retriever
 
     top = retriever.retrieve(
         records,

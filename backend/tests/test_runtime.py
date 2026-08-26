@@ -10,7 +10,7 @@ import threading
 from agents.agent import RonParker
 from memory.memory_system import MemorySystem
 from runtime import MAX_STEPS, run_decision_loop
-from world import World
+from world.snapshot import World
 
 
 def _make_agent(tmp_path):
@@ -324,8 +324,8 @@ def _inbox():
 def test_send_mail_does_not_end_the_turn(tmp_path, monkeypatch):
     # 发信改变了世界（对方收件箱多了一封）却不占游戏时间，所以本轮继续，
     # 模型还要决定"接下来这段时间干什么"。
-    from mailbox import Mailbox
-    monkeypatch.setattr("mailbox.mailbox", Mailbox(path=tmp_path / "mail.json"))
+    from world.mailbox import Mailbox
+    monkeypatch.setattr("world.mailbox.mailbox", Mailbox(path=tmp_path / "mail.json"))
 
     agent = _make_agent(tmp_path)
     _scripted_llm(agent, monkeypatch, [_mail(), _stay_call("wait for a reply")])
@@ -339,9 +339,9 @@ def test_send_mail_does_not_end_the_turn(tmp_path, monkeypatch):
 
 def test_ask_then_wait_is_a_single_turn(tmp_path, monkeypatch):
     # 这正是 stay 存在的理由：发完信原地等，一轮之内走完。
-    from mailbox import Mailbox
+    from world.mailbox import Mailbox
     box = Mailbox(path=tmp_path / "mail.json")
-    monkeypatch.setattr("mailbox.mailbox", box)
+    monkeypatch.setattr("world.mailbox.mailbox", box)
 
     agent = _make_agent(tmp_path)
     agent.current_location = "Pharmacy.Waiting_chair"
@@ -359,9 +359,9 @@ def test_ask_then_wait_is_a_single_turn(tmp_path, monkeypatch):
 
 def test_second_letter_in_one_turn_is_rate_limited(tmp_path, monkeypatch):
     # 没有这个护栏，模型可能一轮连发数封，步数耗尽却什么正事都没干。
-    from mailbox import Mailbox
+    from world.mailbox import Mailbox
     box = Mailbox(path=tmp_path / "mail.json")
-    monkeypatch.setattr("mailbox.mailbox", box)
+    monkeypatch.setattr("world.mailbox.mailbox", box)
 
     agent = _make_agent(tmp_path)
     contexts = _scripted_llm(agent, monkeypatch, [
@@ -382,9 +382,9 @@ def test_second_letter_in_one_turn_is_rate_limited(tmp_path, monkeypatch):
 def test_unread_hint_appears_then_clears_within_the_same_turn(tmp_path, monkeypatch):
     # 未读数每一步都重新取：读完之后同一轮的下一步就归零，
     # 模型不会傻乎乎再读一遍。
-    from mailbox import Mailbox
+    from world.mailbox import Mailbox
     box = Mailbox(path=tmp_path / "mail.json")
-    monkeypatch.setattr("mailbox.mailbox", box)
+    monkeypatch.setattr("world.mailbox.mailbox", box)
     box.send("Ella Parker", "Ron Parker", "dinner", "Shall we eat at seven?")
 
     agent = _make_agent(tmp_path)
@@ -406,9 +406,9 @@ def test_unread_hint_appears_then_clears_within_the_same_turn(tmp_path, monkeypa
 def test_letter_content_only_enters_context_through_the_scratchpad(tmp_path, monkeypatch):
     # 正文从不自动进上下文；它是 check_inbox 的 observation，
     # 经由本轮试错记录回灌，下一步才看得到。
-    from mailbox import Mailbox
+    from world.mailbox import Mailbox
     box = Mailbox(path=tmp_path / "mail.json")
-    monkeypatch.setattr("mailbox.mailbox", box)
+    monkeypatch.setattr("world.mailbox.mailbox", box)
     box.send("Ella Parker", "Ron Parker", "bridge", "Meet me at the bridge at nine.")
 
     agent = _make_agent(tmp_path)
@@ -429,8 +429,8 @@ def test_letter_content_only_enters_context_through_the_scratchpad(tmp_path, mon
 def test_repeating_a_query_returns_last_answer_instead_of_asking_again(tmp_path, monkeypatch):
     # 真跑数据：有几轮五步全花在反复查同一个货架、同一个余额上，
     # 一个动作都没做出来。纯查询的答案一轮之内不会变。
-    from economy import Economy
-    monkeypatch.setattr("economy.economy", Economy(path=tmp_path / "e.json"))
+    from world.economy import Economy
+    monkeypatch.setattr("world.economy.economy", Economy(path=tmp_path / "e.json"))
 
     agent = _make_agent(tmp_path)
     agent.current_location = "Supermarket.Checkout"
@@ -453,8 +453,8 @@ def test_repeating_a_query_returns_last_answer_instead_of_asking_again(tmp_path,
 
 
 def test_a_different_query_argument_is_not_blocked(tmp_path, monkeypatch):
-    from economy import Economy
-    monkeypatch.setattr("economy.economy", Economy(path=tmp_path / "e.json"))
+    from world.economy import Economy
+    monkeypatch.setattr("world.economy.economy", Economy(path=tmp_path / "e.json"))
 
     agent = _make_agent(tmp_path)
     agent.current_location = "Supermarket.Checkout"
@@ -473,12 +473,12 @@ def test_a_different_query_argument_is_not_blocked(tmp_path, monkeypatch):
 def test_acting_twice_is_still_allowed(tmp_path, monkeypatch):
     # read_only 只管纯查询。连买两件、连发两封信都是合法意图，
     # 重复调用有实际效果，不能一并拦掉。
-    from economy import Economy
+    from world.economy import Economy
     from tools import get_tool
 
     store = Economy(path=tmp_path / "e.json")
     store._balances["Ron Parker"] = 100
-    monkeypatch.setattr("economy.economy", store)
+    monkeypatch.setattr("world.economy.economy", store)
 
     assert get_tool("buy").read_only is False
     assert get_tool("send_mail").read_only is False
@@ -539,10 +539,10 @@ def test_every_step_reaches_both_the_scratchpad_and_the_trace(tmp_path, monkeypa
     现有的功能测试一个都发现不了这种洞，因为它们只看返回值，不看日志。
     """
     logged = []
-    monkeypatch.setattr("runtime.log_action_event", lambda record: logged.append(record))
+    monkeypatch.setattr("runtime.agent_runtime.log_action_event", lambda record: logged.append(record))
 
-    from economy import Economy
-    monkeypatch.setattr("economy.economy", Economy(path=tmp_path / "e.json"))
+    from world.economy import Economy
+    monkeypatch.setattr("world.economy.economy", Economy(path=tmp_path / "e.json"))
 
     agent = _make_agent(tmp_path)
     agent.current_location = "Supermarket.Checkout"
@@ -565,7 +565,7 @@ def test_every_step_reaches_both_the_scratchpad_and_the_trace(tmp_path, monkeypa
 
 def test_fallback_is_traced_too(tmp_path, monkeypatch):
     logged = []
-    monkeypatch.setattr("runtime.log_action_event", lambda record: logged.append(record))
+    monkeypatch.setattr("runtime.agent_runtime.log_action_event", lambda record: logged.append(record))
 
     agent = _make_agent(tmp_path)
     _scripted_llm(agent, monkeypatch, [_move("Pharmacy.Medicine_shelf")] * MAX_STEPS)
@@ -586,8 +586,8 @@ def test_facts_and_walls_are_kept_apart(tmp_path, monkeypatch):
     三天真跑里出现了 83 次同一轮内重复提问——它把刚查到的答案当成了
     又一条待办，而不是已知的事实。
     """
-    from economy import Economy
-    monkeypatch.setattr("economy.economy", Economy(path=tmp_path / "e.json"))
+    from world.economy import Economy
+    monkeypatch.setattr("world.economy.economy", Economy(path=tmp_path / "e.json"))
 
     agent = _make_agent(tmp_path)
     agent.current_location = "Supermarket.Checkout"

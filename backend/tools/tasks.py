@@ -10,7 +10,7 @@
 """
 
 from tools.base import THOUGHT_FIELD, accept, reject
-from tools.locations import AGENT_NAMES
+from world.locations import AGENT_NAMES
 
 ACCEPT_TASK_PARAMETERS = {
     "type": "object",
@@ -53,9 +53,9 @@ def handle_accept_task(agent, args, world=None):
     刻意不做"提醒自己去散步"这种没有客观终点的任务：判不出完成与否的目标
     对评估毫无价值，只会把上下文塞满。
     """
-    from economy import ALL_ITEMS
-    from goals import DELIVER, goal_store
-    from world import EMPTY_WORLD
+    from world.economy import ALL_ITEMS
+    from world.goals import DELIVER, goal_store
+    from world.snapshot import EMPTY_WORLD
 
     world = world or EMPTY_WORLD
     item = str((args or {}).get("item") or "").strip()

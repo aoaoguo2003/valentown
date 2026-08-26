@@ -7,7 +7,7 @@
 查到的数字从返回那一刻起就是缓存。
 """
 
-from economy import ALL_ITEMS, CATALOG
+from world.economy import ALL_ITEMS, CATALOG
 from tools.base import THOUGHT_FIELD, accept, reject
 
 
@@ -34,7 +34,7 @@ def _shop_access(agent, world, area):
     时间进自己的店"是同一条身份特权。这条例外也让"写信问店主"这条路
     真的有价值：否则店主自己都不知道，问了也白问。
     """
-    from world import SHOP_OWNERS, area_of
+    from world.snapshot import SHOP_OWNERS, area_of
 
     if SHOP_OWNERS.get(area) == agent.name:
         return True
@@ -52,8 +52,8 @@ def handle_check_stock(agent, args, world=None):
     ⚠️ 查到的数字从返回那一刻起就可能过期。真正的防线在 ``buy`` 里的
     原子扣减，不在这里。
     """
-    from economy import CATALOG, economy
-    from world import EMPTY_WORLD, SHOP_OWNERS
+    from world.economy import CATALOG, economy
+    from world.snapshot import EMPTY_WORLD, SHOP_OWNERS
 
     world = world or EMPTY_WORLD
     area = (args or {}).get("shop")
@@ -115,8 +115,8 @@ def handle_buy(agent, args, world=None):
     卖光时给出的 observation 会带上真实剩余量，好让模型知道"刚才明明
     还有"是怎么回事，从而去别处想办法，而不是原地重试。
     """
-    from economy import ITEM_SHOP, economy
-    from world import EMPTY_WORLD, area_of
+    from world.economy import ITEM_SHOP, economy
+    from world.snapshot import EMPTY_WORLD, area_of
 
     world = world or EMPTY_WORLD
     item = (args or {}).get("item")
@@ -199,8 +199,8 @@ def handle_restock(agent, args, world=None):
     钱不够时按买得起的数量进，并如实告诉店主进了几件、还剩多少钱——
     "钱不够"三个字帮不了他判断下一步。
     """
-    from economy import ITEM_SHOP, economy, restock_cost
-    from world import EMPTY_WORLD, SHOP_OWNERS, area_of
+    from world.economy import ITEM_SHOP, economy, restock_cost
+    from world.snapshot import EMPTY_WORLD, SHOP_OWNERS, area_of
 
     world = world or EMPTY_WORLD
     item = (args or {}).get("item")

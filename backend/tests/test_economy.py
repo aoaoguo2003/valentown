@@ -9,10 +9,10 @@ import threading
 import pytest
 
 from agents.agent import EmmaHarris, EllaParker, RonParker
-from economy import CATALOG, ITEM_SHOP, Economy, price_of
+from world.economy import CATALOG, ITEM_SHOP, Economy, price_of
 from memory.memory_system import MemorySystem
 from tools import get_tool
-from world import World
+from world.snapshot import World
 
 
 @pytest.fixture
@@ -156,7 +156,7 @@ def test_state_survives_a_restart(tmp_path):
 # ---------- 信息边界：到店才看得见，除非你是店主 ----------
 
 def _check(agent, world, shop, monkeypatch, store):
-    monkeypatch.setattr("economy.economy", store)
+    monkeypatch.setattr("world.economy.economy", store)
     return get_tool("check_stock").handler(
         agent, {"thought": "let me look", "shop": shop}, world)
 
@@ -217,7 +217,7 @@ def test_cafe_has_no_owner_so_nobody_can_check_remotely(tmp_path, monkeypatch, s
 # ---------- 购买的前置条件 ----------
 
 def _buy(agent, world, item, monkeypatch, store):
-    monkeypatch.setattr("economy.economy", store)
+    monkeypatch.setattr("world.economy.economy", store)
     return get_tool("buy").handler(agent, {"thought": "need it", "item": item}, world)
 
 
@@ -445,7 +445,7 @@ def test_purse_and_pockets_need_no_tool(tmp_path, monkeypatch, store):
     现在这些信息随世界快照免费进上下文。
     """
     from tools import TOOL_REGISTRY
-    from world import World
+    from world.snapshot import World
 
     assert "check_balance" not in TOOL_REGISTRY
 
@@ -461,7 +461,7 @@ def test_purse_and_pockets_need_no_tool(tmp_path, monkeypatch, store):
 
 
 def test_transfer_tool_reports_the_new_balance(tmp_path, monkeypatch, store):
-    monkeypatch.setattr("economy.economy", store)
+    monkeypatch.setattr("world.economy.economy", store)
     emma = _agent(tmp_path)
 
     result = get_tool("transfer").handler(
@@ -475,7 +475,7 @@ def test_transfer_tool_reports_the_new_balance(tmp_path, monkeypatch, store):
 
 def test_transfer_tool_explains_how_short_you_are(tmp_path, monkeypatch, store):
     # "买不起"三个字帮不了模型；差多少才是它能据此行动的信息。
-    monkeypatch.setattr("economy.economy", store)
+    monkeypatch.setattr("world.economy.economy", store)
     emma = _agent(tmp_path)
 
     result = get_tool("transfer").handler(
@@ -486,7 +486,7 @@ def test_transfer_tool_explains_how_short_you_are(tmp_path, monkeypatch, store):
 
 
 def test_buy_tool_explains_the_shortfall(tmp_path, monkeypatch, store):
-    monkeypatch.setattr("economy.economy", store)
+    monkeypatch.setattr("world.economy.economy", store)
     emma = _agent(tmp_path, location="Pharmacy.Medicine_shelf")
     world = _world(**{"Emma Harris": "Pharmacy.Medicine_shelf"})
     store._balances["Emma Harris"] = 3
@@ -509,7 +509,7 @@ def test_wallet_tools_cost_no_game_time():
 
 def test_restock_costs_the_owner_money(store):
     # 进货价 = 售价 - 2，差价就是毛利。
-    from economy import RESTOCK_MARGIN, restock_cost
+    from world.economy import RESTOCK_MARGIN, restock_cost
 
     assert RESTOCK_MARGIN == 2
     assert restock_cost("cold_medicine") == 6            # 售价 8
@@ -585,7 +585,7 @@ def test_shop_can_bootstrap_from_its_own_takings(store):
 # ---------- 进货工具的资格检查 ----------
 
 def _restock(agent, world, item, quantity, monkeypatch, store):
-    monkeypatch.setattr("economy.economy", store)
+    monkeypatch.setattr("world.economy.economy", store)
     return get_tool("restock").handler(
         agent, {"thought": "shelf is looking bare", "item": item, "quantity": quantity}, world)
 

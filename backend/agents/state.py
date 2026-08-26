@@ -3,8 +3,13 @@ import re
 from copy import deepcopy
 from pathlib import Path
 
+# 时间换算住在 world/clock.py：它是纯函数，世界和居民都要用，
+# 谁都不该拥有它。这里 import 进来，既有的调用方不受影响。
+from config import DATA_DIR
+from world.clock import parse_clock_to_minutes  # noqa: F401  （re-export）
 
-STATE_DIR = Path(__file__).with_name("agent_internal_states")
+
+STATE_DIR = DATA_DIR / "agent_internal_states"
 DEFAULT_DAY = 1
 DEFAULT_TIME = "6:00 AM"
 MINUTES_PER_DAY = 24 * 60
@@ -195,21 +200,6 @@ def clamp_state_values(state):
     for key, value in state.get("values", {}).items():
         state["values"][key] = max(0, min(100, int(round(value))))
     return state
-
-
-def parse_clock_to_minutes(clock_text):
-    match = re.match(r"^\s*(\d{1,2})(?::(\d{2}))?\s*(AM|PM)\s*$", str(clock_text or ""), re.I)
-    if not match:
-        return 6 * 60
-
-    hours = int(match.group(1))
-    minutes = int(match.group(2) or 0)
-    period = match.group(3).upper()
-    if period == "PM" and hours != 12:
-        hours += 12
-    if period == "AM" and hours == 12:
-        hours = 0
-    return (hours * 60) + minutes
 
 
 def to_game_minute(day=None, time=None, fallback=6 * 60):

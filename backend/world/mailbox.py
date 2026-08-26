@@ -24,7 +24,9 @@ import json
 import threading
 from pathlib import Path
 
-MAILBOX_FILE = Path(__file__).with_name("mailboxes.json")
+from config import DATA_DIR
+
+MAILBOX_FILE = DATA_DIR / "mailboxes.json"
 
 # 正文长度上限。信是给模型读的，太长会挤占决策上下文；截断比拒收温和。
 BODY_MAX_CHARS = 280

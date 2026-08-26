@@ -6,7 +6,7 @@
 """
 
 from tools.base import THOUGHT_FIELD, accept, reject
-from tools.locations import AGENT_NAMES
+from world.locations import AGENT_NAMES
 
 
 # --- send_mail：改变世界但不占用游戏时间 -----------------------------
@@ -52,7 +52,7 @@ def handle_send_mail(agent, args, world=None):
     看到未读提示，而两次决策之间隔着一个完整动作。发信人无从得知对方
     读没读——这正是异步通信该有的样子。
     """
-    from mailbox import mailbox
+    from world.mailbox import mailbox
 
     recipient = (args or {}).get("to")
     if recipient not in AGENT_NAMES:
@@ -101,7 +101,7 @@ def handle_check_inbox(agent, args, world=None):
     重复读同一批信。这个"取走并标记"是一个读-改-写序列，由 mailbox 内部
     的锁保证原子性。
     """
-    from mailbox import mailbox
+    from world.mailbox import mailbox
 
     letters = mailbox.take_unread(agent.name)
     if not letters:

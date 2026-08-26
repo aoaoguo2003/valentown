@@ -12,8 +12,8 @@ import pytest
 from agents.agent import RonParker
 from memory.memory_system import MemorySystem
 from tools import get_tool
-from tools.locations import OUTDOOR_ANCHORS, is_outdoor
-from weather import (
+from world.locations import OUTDOOR_ANCHORS, is_outdoor
+from world.weather import (
     FAILURE_THRESHOLD,
     MAX_RETRIES,
     SEVERE_CODES,
@@ -21,14 +21,14 @@ from weather import (
     describe,
     is_severe,
 )
-from world import World
+from world.snapshot import World
 
 
 @pytest.fixture(autouse=True)
 def no_sleeping(monkeypatch):
     """退避真的会 sleep，测试里没必要真等——但仍然记录它被调用了几次。"""
     calls = []
-    monkeypatch.setattr("weather.time.sleep", lambda seconds: calls.append(seconds))
+    monkeypatch.setattr("world.weather.time.sleep", lambda seconds: calls.append(seconds))
     return calls
 
 
@@ -305,7 +305,7 @@ def test_forecast_tool_never_touches_the_network(tmp_path, monkeypatch, no_sleep
     # 所以这个工具本身永远不会因为网络问题失败。
     calls = []
     service = WeatherService(fetcher=lambda: calls.append(1) or ([0] * 12 + [65] * 12))
-    monkeypatch.setattr("weather.weather_service", service)
+    monkeypatch.setattr("world.weather.weather_service", service)
 
     agent = _agent(tmp_path)
     world = World(time_minutes=10 * 60, agent_locations={}, life_day=1)
@@ -320,7 +320,7 @@ def test_forecast_tool_never_touches_the_network(tmp_path, monkeypatch, no_sleep
 def test_forecast_warns_about_coming_bad_weather(tmp_path, monkeypatch, no_sleeping):
     # 不查预报的话，模型只知道此刻，于是会在晴天决定出门三小时然后被浇。
     service = WeatherService(fetcher=lambda: [0] * 14 + [65] * 10)
-    monkeypatch.setattr("weather.weather_service", service)
+    monkeypatch.setattr("world.weather.weather_service", service)
 
     agent = _agent(tmp_path)
     world = World(time_minutes=12 * 60, agent_locations={}, life_day=1)
@@ -334,7 +334,7 @@ def test_forecast_warns_about_coming_bad_weather(tmp_path, monkeypatch, no_sleep
 
 def test_forecast_says_when_nothing_is_coming(tmp_path, monkeypatch, no_sleeping):
     service = WeatherService(fetcher=_clear_sky)
-    monkeypatch.setattr("weather.weather_service", service)
+    monkeypatch.setattr("world.weather.weather_service", service)
 
     agent = _agent(tmp_path)
     world = World(time_minutes=9 * 60, agent_locations={}, life_day=1)

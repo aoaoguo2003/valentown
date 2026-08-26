@@ -7,11 +7,11 @@
 import pytest
 
 from agents.agent import EmmaHarris
-from goals import MAX_ACTIVE, MEET, GoalStore
+from world.goals import MAX_ACTIVE, MEET, GoalStore
 from memory.memory_system import MemorySystem
 from tools import get_tool
-from tools.locations import MEETING_AREAS
-from world import World
+from world.locations import MEETING_AREAS
+from world.snapshot import World
 
 EMMA = "Emma Harris"
 ADAM = "Adam Harris"
@@ -21,7 +21,7 @@ GAVIN = "Gavin Harris"
 @pytest.fixture
 def store(tmp_path, monkeypatch):
     goals = GoalStore(path=tmp_path / "goals.json")
-    monkeypatch.setattr("goals.goal_store", goals)
+    monkeypatch.setattr("world.goals.goal_store", goals)
     return goals
 
 
@@ -109,7 +109,7 @@ def test_a_full_diary_on_one_side_cancels_the_whole_thing(store):
 
 def test_errands_and_meetings_are_counted_separately(store):
     # 手上有跑腿的差事，不该妨碍你答应见个面。
-    from goals import DELIVER
+    from world.goals import DELIVER
 
     for item in ("bread", "milk"):
         store.accept(EMMA, DELIVER, ADAM, item, 18 * 60, life_day=1)
@@ -200,10 +200,10 @@ def test_arranging_turns_a_chance_encounter_into_a_plan(tmp_path, store, monkeyp
     Emma 手上有药要给 Adam。此前她只能走到某处、期望撞见他；现在她可以
     约定一个时间地点，而这个约定会一直摆在两个人眼前。
     """
-    from economy import Economy
+    from world.economy import Economy
 
     wallet = Economy(path=tmp_path / "economy.json")
-    monkeypatch.setattr("economy.economy", wallet)
+    monkeypatch.setattr("world.economy.economy", wallet)
     wallet._holdings[EMMA] = {"cold_medicine": 1}
 
     emma = _agent(tmp_path)
@@ -248,7 +248,7 @@ def _run_loop(agent, store, calls, monkeypatch, minutes, day=1):
     import threading
 
     from runtime import run_decision_loop
-    from world import World
+    from world.snapshot import World
 
     queue = list(calls)
     monkeypatch.setattr(
@@ -281,7 +281,7 @@ def test_a_long_sleep_is_cut_short_by_an_appointment(tmp_path, store, monkeypatc
 
     这不是中断——没有任何东西把她叫醒，只是这个动作一开始就不允许有那么长。
     """
-    from goals import COMMITMENT_BUFFER_MINUTES
+    from world.goals import COMMITMENT_BUFFER_MINUTES
 
     agent = _agent(tmp_path, "Emma_home.Living_room")
     store.arrange_meeting(EMMA, ADAM, "Park", at_minute=16 * 60, life_day=1)
@@ -317,7 +317,7 @@ def test_an_action_that_already_fits_is_left_alone(tmp_path, store, monkeypatch)
 
 def test_being_almost_late_still_leaves_a_workable_action(tmp_path, store, monkeypatch):
     # 约会只剩五分钟：裁成负数是没意义的，给一个最短动作让它下一轮重新决定。
-    from tools.locations import MIN_ACTION_MINUTES
+    from world.locations import MIN_ACTION_MINUTES
 
     agent = _agent(tmp_path, "Emma_home.Living_room")
     store.arrange_meeting(EMMA, ADAM, "Park", at_minute=12 * 60 + 5, life_day=1)
@@ -330,7 +330,7 @@ def test_being_almost_late_still_leaves_a_workable_action(tmp_path, store, monke
 
 def test_an_errand_deadline_clips_things_too(tmp_path, store, monkeypatch):
     # 约会的时刻和任务的期限是同一回事——都是"不能睡过头"的那个点。
-    from goals import DELIVER
+    from world.goals import DELIVER
 
     agent = _agent(tmp_path, "Emma_home.Living_room")
     store.accept(EMMA, DELIVER, ADAM, "cold_medicine", 14 * 60, life_day=1)
@@ -342,7 +342,7 @@ def test_an_errand_deadline_clips_things_too(tmp_path, store, monkeypatch):
 
 
 def test_the_earliest_deadline_wins(tmp_path, store, monkeypatch):
-    from goals import DELIVER
+    from world.goals import DELIVER
 
     agent = _agent(tmp_path, "Emma_home.Living_room")
     store.accept(EMMA, DELIVER, ADAM, "cold_medicine", 18 * 60, life_day=1)
