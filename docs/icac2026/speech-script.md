@@ -5,7 +5,8 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 
 - 时间：2026 年 8 月 27 日（周四）17:35 – 17:50 (BST)
 - 场次：Parallel Session 3 — Robotics & Autonomous Systems，会场 N2.10
-- 幻灯片：`ICAC2026_Paper108_Valentown.pptx`（14 页，英文讲稿已放进每页备注栏 / Speaker Notes，用演示者视图即可看到）
+- 幻灯片：`ICAC2026_Paper108_Valentown.pptx`（14 页，图为主、字为辅；英文讲稿已放进每页备注栏 / Speaker Notes，用演示者视图即可看到）
+- 页面上只留关键词和示意图，完整句子都在讲稿里——**照着页面念是不够的，按下面的讲稿讲**
 
 ---
 
@@ -53,8 +54,8 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 >
 > But something is still missing. Most LLM agent systems are reactive: they answer the prompt in front of them. There is no daily structure, and interaction is ad hoc. So behaviour drifts, the dynamics are hard to control, and results are hard to reproduce. That is the gap we target.
 
-- 中文要点：左卡＝传统 ABM（规则固定、宏观可以、个体不像人）；右卡＝LLM 智能体（会说话、有上下文，但**是反应式的**）；下方黄条＝真正缺的东西：行为、交互、反馈都没有显式结构。
-- 讲法：讲到 "That is the gap we target" 时停顿一拍，这是全场的转折点。
+- 中文要点：左卡＝传统 ABM（`固定规则 → 行为`，宏观可以、个体不像人）；右卡＝LLM 智能体（`Prompt → LLM → 行为`，会说话但**是反应式的**）；下方黄条＝真正缺的东西：行为、交互、反馈都没有显式结构。
+- 讲法：对着两个小流程图讲差别，不要念卡片上的小标签；讲到 "That is the gap we target" 时停顿一拍，这是全场的转折点。
 
 ### 3 · Problem statement — One question, three requirements
 
@@ -91,7 +92,7 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 > That is the design principle of the paper: deterministic when, generative what.
 
 - 中文要点：机制一＝先有日程再有行为（prompt = 身份 + 性格 + 目标 + 检索到的记忆）；机制二＝同时同地才对话，触发是**确定性**的，内容才交给 LLM。
-- 讲法：底部黄条那句 "deterministic *when*, generative *what*" 是全场最好记的一句，放慢、加重语气。左卡下面四个小标签只是**示意**的一天，若被问可以说明 "illustrative"。
+- 讲法：左卡那条「家 → 咖啡馆 → 超市 → 家」的地点条就是一天的日程，用手划过去讲；右卡两个居民站在咖啡馆两侧，就是共处触发对话。底部黑条那句 "deterministic *when*, generative *what*" 是全场最好记的一句，放慢、加重语气。地点条只是**示意**的一天，页面上已标 illustrative。
 
 ### 6 · Mechanism 3 — Memory is where the days connect ★重点
 
@@ -105,7 +106,7 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 >
 > Two notes. A person can write feedback directly into memory, through the same channel. And the language model itself is stateless — all continuity lives in the memory system.
 
-- 中文要点：**写入**（计划／对话／反思，带类别、时间戳、重要度）→ **读出**（规划检索、对话检索、反思压缩后写回）→ 图 3 就是这个闭环；再补两点：人可以从同一通道注入反馈；LLM 本身无状态，连续性全在记忆里。
+- 中文要点：页面左边就是两排——**WRITTEN IN**（计划／对话／反思）和 **READ OUT**（规划／对话／反思），中间一行是条目属性（类别、时间戳、重要度）；右边图 3 就是这个闭环。再补两点：人可以从同一通道注入反馈；LLM 本身无状态，连续性全在记忆里。
 - 讲法：这是评审最可能追问的一页，宁可在这里多花 10 秒。指着图讲 "store in / generate" 两个方向。
 
 ### 7 · Execution — One simulation day, end to end
@@ -150,7 +151,7 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 >
 > So interaction is not decoration here — it drives diversity and adaptation together.
 
-- 中文要点：开／关交互的对照；解释**为什么**会这样（对话 → 记忆 → 下一次规划的输入），这句因果是本页的关键，不要只念现象。
+- 中文要点：页面上是两条链——上面绿色那条 `对话 → 记忆 → 第二天的计划 → 更丰富的行为`，下面灰色那条在第一个箭头上打了叉，链条断掉，结果是重复、孤立、日程不变。这个因果是本页的关键，不要只念现象。
 - 讲法："what someone said to you yesterday shows up in what you do today" 是通俗版解释，用它把机制讲活。
 
 ### 11 · Result 2 — Memory changes shape as the days pass
@@ -161,8 +162,8 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 >
 > And that content tracks behaviour. Agents with rich interaction and reflection memories adapt more and behave more coherently. Repeated interaction between two agents forms a persistent bond, visible later as repeated co-location. Nobody wrote a friendship rule; it comes out of memory plus retrieval. Where memory influence is limited, adaptation is weaker. [末句可删]
 
-- 中文要点：上排三张卡＝记忆构成随时间迁移（计划／观察 → 对话／反思 → 高重要度记忆主导）；下方＝记忆内容与行为变化相关（持久社交关系、目标导向的任务选择）。
-- 讲法："Nobody wrote a friendship rule" 是本页的记忆点，说完稍停。注意措辞是「相关 / 观察到」，不要说成统计显著。
+- 中文要点：左边三根柱子＝记忆构成随时间迁移（绿＝计划与观察，黄＝对话，深色＝反思）；右边两张卡＝记忆内容与行为变化相关（持久社交关系、目标导向的任务选择）。
+- 讲法："Nobody wrote a friendship rule" 是本页的记忆点，说完稍停。**柱状图是示意图**，页面下方已标 schematic；被问到比例来源就直说这是定性趋势、不是实测比例。注意措辞是「相关 / 观察到」，不要说成统计显著。
 
 ### 12 · Discussion — What this buys us, and what it costs
 
@@ -172,7 +173,7 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 >
 > The limitations are real. Cost: every plan, conversation and reflection is an API call, and that scales with agents times days. Scale: this is a small study in a simple town. And stochasticity: outputs vary between runs, which is why our current evaluation is qualitative rather than numeric.
 
-- 中文要点：优势三点（轻量可复现 / 可控 / 可扩展），局限三点（成本、规模、随机性）。
+- 中文要点：优势三点（轻量可复现 / 可控 / 可扩展），底部五个方块里被「抽出来」的那块就是模块可替换；局限三点（成本、规模、随机性），底部 `agents × days × conversations` 说明调用量怎么增长。
 - 讲法：**主动讲清局限**。评审最可能问的就是「没有定量指标」，你先说出来，等于把这个问题接了下来，气场完全不同。
 
 ### 13 · Conclusion — Where this leaves us
@@ -183,7 +184,7 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 >
 > Three directions ahead. Quantitative evaluation is the most important — network analysis, interaction frequency, plan coherence, plus user studies. Then larger populations and real-time reaction. [可删] And finally deeper reasoning, with applications to game NPCs, education and embodied agents.
 
-- 中文要点：结论一句话＝简单的生成式机制足以产生连贯routine、持久关系与经验驱动的适应；未来工作三条，把「定量评估」放在第一位。
+- 中文要点：结论一句话＝简单的生成式机制足以产生连贯 routine、持久关系与经验驱动的适应；左下 `Plan → Interact → Reflect →（次日）` 那条环正好把全场收回到主线上；未来工作三条，把「定量评估」放在第一位。
 
 ### 14 · Thank you
 
