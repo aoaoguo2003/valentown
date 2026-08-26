@@ -495,9 +495,15 @@ def test_buy_tool_explains_the_shortfall(tmp_path, monkeypatch, store):
 
     assert result["ok"] is False
     assert result["reason"] == "insufficient_funds"
-    assert "5 short" in result["observation"]
-    # 反馈要指出可行的下一步，模型才可能去借钱或换便宜的。
-    assert "get money" in result["observation"]
+    observation = result["observation"]
+
+    # 旧措辞只说"你得从别处弄钱"——说了差多少，从不点明**怎么弄**。
+    # 真跑的结果很干净：三道题七种配置全部卡死在"凑够药钱"这一环，
+    # 一次都没开口借钱。所以这条反馈现在必须做三件事：
+    assert "5 short" in observation              # 差多少
+    assert "really need" in observation          # 岔路口：这东西非要不可吗
+    assert "write to someone" in observation     # 要的话，那条路怎么走
+    assert "in person" in observation            # 为什么只能写信——世界规则
 
 
 def test_wallet_tools_cost_no_game_time():

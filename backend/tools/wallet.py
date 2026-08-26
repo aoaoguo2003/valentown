@@ -19,6 +19,20 @@
 from tools.base import THOUGHT_FIELD, accept, reject
 from world.locations import AGENT_NAMES
 
+
+def give_item_available(agent, world):
+    """手上得有东西，眼前得有人——两个条件都只在"此刻"成立。
+
+    ``transfer`` 故意没有谓词：钱不需要见面就能转，它永远可用。
+    """
+    from world.economy import economy
+
+    if not any(int(count) > 0 for count in economy.holdings(agent.name).values()):
+        return "you are not carrying anything to hand over"
+    if not world.visible_agents(agent.name):
+        return "there is nobody here to hand anything to"
+    return None
+
 CHECK_BALANCE_PARAMETERS = {
     "type": "object",
     "properties": {"thought": THOUGHT_FIELD},

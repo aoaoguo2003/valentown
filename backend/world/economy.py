@@ -42,6 +42,7 @@ import threading
 from pathlib import Path
 
 from config import DATA_DIR
+from world import events
 
 ECONOMY_FILE = DATA_DIR / "economy.json"
 
@@ -230,6 +231,9 @@ class Economy:
                     self._balances.get(owner, INITIAL_BALANCE)) + cost
 
             self._save()
+            # 买东西**别人看不见**：visible_to 空着，只进日志供排查和判据。
+            events.event_log.record(events.ITEM_BOUGHT, agent_name,
+                                    item=item, area=area, cost=cost)
             return {
                 "ok": True,
                 "item": item,
@@ -279,6 +283,10 @@ class Economy:
             other = self._holdings.setdefault(receiver, {})
             other[item] = int(other.get(item, 0)) + quantity
             self._save()
+            events.event_log.record(events.ITEM_GIVEN, giver,
+                                    visible_to={receiver},
+                                    item=item, quantity=quantity,
+                                    receiver=receiver)
             return {
                 "ok": True,
                 "item": item,
@@ -319,6 +327,10 @@ class Economy:
             self._balances[recipient] = int(
                 self._balances.get(recipient, INITIAL_BALANCE)) + amount
             self._save()
+            # 转账对收款人本来是完全无声的——他只看得到余额数字变了。
+            events.event_log.record(events.MONEY_SENT, sender,
+                                    visible_to={recipient},
+                                    amount=amount, recipient=recipient)
             return {
                 "ok": True,
                 "amount": amount,

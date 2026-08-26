@@ -46,8 +46,9 @@ LLM 调用最长 60 秒，绝不能持锁进行——改造前整个决策包在
 # 原版函数，摘不掉——而摘不掉的后果不是报错，是消融组和基线组跑出一样的
 # 数字，看上去像"这个能力没用"。
 import tools
+import world.events as events
 import world.goals as goals
-from observability import log_action_event, trace_operation
+from observability import current_context, log_action_event, trace_operation
 
 # 一轮之内允许的最大工具调用次数。绝大多数决策一步就收敛（没被拒绝），
 # 被拒后重来两三步通常够用；这个上限是护栏，不是常态。
@@ -84,7 +85,8 @@ def _record(scratchpad, context, *, tool, args, ok, reason, observation, termina
 
 
 def run_decision_loop(agent, *, internal_state, triggers, day_number, time_text,
-                      current_location, last_action, with_world, max_steps=MAX_STEPS):
+                      current_location, last_action, with_world, max_steps=MAX_STEPS,
+                      filter_tools=False, budget=None, omit_context=()):
     """驱动一个居民做出下一个动作。
 
     ``with_world(fn)`` 由调用方提供：它负责加锁、构造当前世界快照、
@@ -97,6 +99,11 @@ def run_decision_loop(agent, *, internal_state, triggers, day_number, time_text,
     scratchpad = []
     trace = {"agent_name": agent.name, "life_day": day_number, "time_text": time_text}
 
+    # ⚠️ **一轮只取一次。**``take_new`` 有副作用（推进已读水位），而下面
+    # 每一步都会重新组装上下文——每步取一遍的话，第一步就把事件吃光了，
+    # 后面几步全看不见，而且不会报错。
+    recent = tuple(events.event_log.take_new(agent.name))
+
     for step in range(max_steps):
         # ── 想：世界快照 + 本轮试错记录 → 让模型自己挑工具 ──
         world = with_world(lambda current: current)
@@ -106,6 +113,21 @@ def run_decision_loop(agent, *, internal_state, triggers, day_number, time_text,
         # 没有痕迹的话，反思看不到，居民也学不会上次为什么没做到。
         for settled in goals.goal_store.settle(agent.name, world):
             _remember_settled(agent, settled, day_number)
+
+        # 手上在办的事也进日志。回看一条轨迹时，"他当时想干什么"和
+        # "他做了什么"必须摆在一起，否则只能看到一串孤立的工具调用。
+        active = goals.goal_store.active_for(agent.name, day_number)
+        trace["goal"] = active[0].describe() if active else None
+        # 任务点名了什么物品，就把那几样的价钱一起给他。**不给整张价目表。**
+        wanted = tuple(dict.fromkeys(
+            goal.what for goal in active if goal.kind == goals.DELIVER))
+        # 此刻用不了的工具：schema 不进请求，但下面会以一行的形式进
+        # 上下文。摘的是字数，不是能力——看不见的能力不会被规划。
+        if filter_tools:
+            schemas, hidden = tools.schemas_for_now(agent, world)
+        else:
+            schemas, hidden = tools.function_schemas(agent.name), []
+
         context = agent.build_decision_context(
             internal_state, triggers, day_number, time_text, current_location,
             last_action=last_action,
@@ -116,10 +138,29 @@ def run_decision_loop(agent, *, internal_state, triggers, day_number, time_text,
             holdings=world.holdings_for(agent.name),
             weather=world.weather_text(),
             tasks=goals.goal_store.summary_for(agent.name, world),
+            hidden_tools=hidden,
+            wanted_items=wanted,
+            recent_events=recent,
+            omit_context=omit_context,
         )
 
+        # 一天的总账。MAX_STEPS 管一轮想几步，这里管一天花多少——
+        # 两者拦的不是同一种失控。撞上了走兜底，和 LLM 不可用同一条路。
+        if budget:
+            over = budget.exceeded(agent.name, day_number)
+            if over:
+                return _give_up(agent, triggers, scratchpad, day_number, time_text,
+                                reason="budget_exhausted")
+
         with trace_operation("decision", agent.name):
-            call = agent.llm.call_tools(agent.name, context, tools.function_schemas(agent.name))
+            call = agent.llm.call_tools(agent.name, context, schemas)
+            # 把这一步的 trace_id 抄进动作日志。两份日志本来各记各的，
+            # 对不上——于是"这一步花了多少 token"这个问题永远答不了。
+            # 一个 id 就把行为和成本缝在了一起。
+            trace["trace_id"] = current_context().get("trace_id")
+            if budget:
+                budget.record(agent.name, day_number,
+                              agent.llm.last_usage.get("total_tokens", 0))
 
         if call is None:                                    # ③ LLM 不可用
             return _give_up(agent, triggers, scratchpad, day_number, time_text,

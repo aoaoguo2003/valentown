@@ -14,6 +14,7 @@ from agents.state import (
     update_agent_state
 )
 from runtime import run_decision_loop
+import world.events as events
 from world.economy import economy
 from world.goals import goal_store
 from world.mailbox import mailbox
@@ -159,6 +160,9 @@ def make_world_provider(time_text, life_day):
     # 天气在进锁之前预热：它背后是一次外部调用（虽然有缓存），绝不能把一次
     # 可能的网络往返塞进临界区里。预热之后 snapshot() 里那次取值只读缓存。
     weather_service.at(life_day, parse_clock_to_minutes(time_text))
+    # 事件要盖时间戳，而世界服务不知道现在几点。headless 调度器里
+    # 也有同样一行——两条路径在这件事上必须一致。
+    events.event_log.set_clock(life_day, parse_clock_to_minutes(time_text))
 
     def with_world(fn):
         with state_lock:

@@ -37,6 +37,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from config import DATA_DIR
+from world import events
 
 GOALS_FILE = DATA_DIR / "goals.json"
 
@@ -155,6 +156,12 @@ class GoalStore:
                 deadline_minute=at_minute, life_day=life_day, reason=reason,
             ))
         if all(result["ok"] for result in outcomes):
+            from world.clock import format_clock
+
+            events.event_log.record(events.MEETING_ARRANGED, first,
+                                    visible_to={second},
+                                    area=area, at=format_clock(at_minute),
+                                    other=second)
             return {"ok": True, "description": outcomes[0]["description"]}
 
         # 有一方没排上就整体作废，绝不留下单边的约定——

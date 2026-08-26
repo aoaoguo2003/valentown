@@ -91,8 +91,13 @@ ENVIRONMENT_REASONS = frozenset({
 })
 """③ 参数都对，是此刻的世界不允许。换个时间、换个地点就成了。"""
 
-GIVE_UP_REASONS = frozenset({"max_steps_exhausted", "llm_unavailable"})
-"""兜底记录上的理由：想满了步数还没做出动作，或者模型压根没应答。"""
+GIVE_UP_REASONS = frozenset({
+    "max_steps_exhausted",   # 想满了步数还没做出动作
+    "llm_unavailable",       # 模型压根没应答
+    "budget_exhausted",      # 这一天的调用/token 额度用完了
+})
+"""兜底记录上的理由。**三者要分开**：一个是想不明白，一个是打不通，
+一个是没钱了——混成一类，排查时会走冤枉路。"""
 
 KNOWN_REASONS = GUARD_REASONS | ARGUMENT_REASONS | ENVIRONMENT_REASONS | GIVE_UP_REASONS
 

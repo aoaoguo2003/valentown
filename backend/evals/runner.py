@@ -38,6 +38,7 @@ from evals.report import (                                   # noqa: E402
     format_scorecard,
 )
 from evals.scenarios import SCENARIO_REGISTRY                # noqa: E402
+from llm import LLMClient                                    # noqa: E402
 from observability import metrics                            # noqa: E402
 from runtime.scheduler import Town                           # noqa: E402
 
@@ -59,28 +60,48 @@ def run_cell(scenario, ablation, attempt, verbose=True):
         max_decisions=scenario.max_decisions,
         max_steps=ablation.max_steps,
         tools_disabled=ablation.tools_disabled,
+        filter_tools=ablation.filter_tools,
+        omit_context=ablation.omit_context,
         deterministic_weather=True,     # 天气必须钉死，否则比的是天气不是模型
         reflect=False,                  # 反思每天 7 次 LLM，对判据没有影响
         trace_file=trace,
         llm_trace_file=llm_trace,
     )
 
+    # 走到哪一环了。**很多里程碑转瞬即逝**——Emma 借到钱那一刻余额是 8，
+    # 买完药就变成 0；药在她手上，交出去就没了。所以每批决策查一次，
+    # 记的是**最高水位**，只在最后查等于什么都看不见。
+    reached = []
+
+    def watch():
+        for stage in scenario.stages:
+            if stage.name not in reached and stage.reached(town):
+                reached.append(stage.name)
+        return bool(scenario.judge(town)["passed"])
+
     with town:
         scenario.seed(town)
-        # 每批决策后问一次判据。判据是纯查询，便宜。
-        town.stop_when = lambda: bool(scenario.judge(town)["passed"])
+        watch()                      # 开局也照一次，免得漏掉埋点自带的进度
+        town.stop_when = watch
         reason = town.run()
+        watch()
         verdict = scenario.judge(town)
 
     elapsed = time.monotonic() - started
     summary = metrics.summarise(metrics.load(trace))
     cost = metrics.summarise_cost(metrics.load(llm_trace))
 
+    # 这一格的数据可信吗？模型一次都没成功应答过，那这一格量的是后端，
+    # 不是模型——它绝不能以 FAIL 的身份进对照表。
+    usable = cost.get("calls", 0) == 0 or cost["by_status"].get("success", 0) > 0
+
     if verbose:
-        mark = {True: "PASS", False: "FAIL", None: "----"}[verdict["passed"]]
+        mark = ("ERR " if not usable
+                else {True: "PASS", False: "FAIL", None: "----"}[verdict["passed"]])
         tokens = cost.get("tokens", {}).get("total", 0)
+        walked = f"  走到 {len(reached)}/{len(scenario.stages)} 环" if scenario.stages else ""
         print(f"    {mark}  {town.decisions} 次决策 / {elapsed:.0f}s / "
-              f"{tokens} tokens   {verdict['detail']}")
+              f"{tokens} tokens{walked}   {verdict['detail']}")
         sys.stdout.flush()
 
     return {
@@ -95,6 +116,9 @@ def run_cell(scenario, ablation, attempt, verbose=True):
         "stopped_because": reason,
         "wall_seconds": elapsed,
         "trace": trace.name,
+        "usable": usable,
+        "stages": [stage.name for stage in scenario.stages],
+        "reached": list(reached),
         "metrics": summary,
         "cost": cost,
     }
@@ -144,7 +168,7 @@ def main(argv=None):
     # 中途一次 Ctrl-C 或一次卡死就把已经花掉的钱全扔了。
     incremental = RUN_DIR / "rows.jsonl"
 
-    rows = []
+    rows, fatal = [], False
     for scenario in scenarios:
         for ablation in ablations:
             for attempt in range(1, args.repeats + 1):
@@ -159,6 +183,17 @@ def main(argv=None):
                 with incremental.open("a", encoding="utf-8") as file:
                     file.write(json.dumps(row, ensure_ascii=False) + "\n")
                 print(f"    [{len(rows)}/{cells}]", flush=True)
+
+                if LLMClient.fatal_error:
+                    # 上一次没有这道闸，于是又跑了三十格废数据、烧掉一小时。
+                    print(f"\n!! 中止：{LLMClient.fatal_error}")
+                    print(f"   已跑完的 {len(rows)} 格结果保留在 {incremental}")
+                    fatal = True
+                    break
+            if fatal:
+                break
+        if fatal:
+            break
 
     if not rows:
         print("\n一格都没跑成。")

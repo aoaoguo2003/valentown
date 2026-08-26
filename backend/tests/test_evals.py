@@ -123,10 +123,12 @@ def test_every_ablation_actually_takes_something_away():
     """``none`` 之外的每一项都必须真的关掉点什么，否则它和基线跑出
     一样的数字，看上去像"这个能力没用"。"""
     for name, ablation in ABLATION_REGISTRY.items():
+        knobs = (ablation.tools_disabled, ablation.max_steps,
+                 ablation.filter_tools, ablation.omit_context)
         if name == "none":
-            assert not ablation.tools_disabled and ablation.max_steps is None
+            assert not any(knobs), "基线不该关掉任何东西"
         else:
-            assert ablation.tools_disabled or ablation.max_steps, f"{name} 什么都没关"
+            assert any(knobs), f"{name} 什么都没关，会和基线跑出一样的数字"
 
 
 def test_every_ablated_tool_name_really_exists():
@@ -179,3 +181,61 @@ def test_single_step_is_not_the_same_thing_as_pre_rebuild():
     assert single.max_steps == pre.max_steps == 1
     assert not single.tools_disabled          # 工具一件没摘
     assert pre.tools_disabled                 # 只剩 move_to
+
+
+# --- 分段判据 -----------------------------------------------------------------
+
+@pytest.mark.parametrize("name", SEEDED)
+def test_a_freshly_seeded_scenario_has_not_reached_any_stage(name):
+    scenario = SCENARIO_REGISTRY[name]
+    with Town(days=1) as town:
+        scenario.seed(town)
+        reached = [s.name for s in scenario.stages if s.reached(town)]
+        assert reached == [], f"{name} 一开局就走到了 {reached}"
+
+
+@pytest.mark.parametrize("name", SEEDED)
+def test_stage_names_are_unique(name):
+    """重名的环会被高水位那个 set 吞掉一个，进度就永远差一。"""
+    names = [s.name for s in SCENARIO_REGISTRY[name].stages]
+    assert len(names) == len(set(names))
+
+
+def test_a_middle_stage_stops_being_true_which_is_why_we_track_a_high_water_mark():
+    """**这就是分段必须边跑边查的原因。**
+
+    "药买到手了"在交付之后就不成立了——药已经不在 Emma 手上。只在最后查
+    一次的话，这一环会显示没走到，而它明明走过。
+    """
+    scenario = SCENARIO_REGISTRY["errand"]
+    bought = next(s for s in scenario.stages if s.name == "买到药")
+
+    with Town(days=1) as town:
+        scenario.seed(town)
+        town.economy.seed(holdings={"Emma Harris": {"cold_medicine": 1}})
+        assert bought.reached(town) is True
+
+        # 交付：药从 Emma 手上转到 Adam 手上
+        town.economy.seed(holdings={"Emma Harris": {}, "Adam Harris": {"cold_medicine": 1}})
+        assert bought.reached(town) is False, "这一环本来就是转瞬即逝的"
+        assert scenario.judge(town)["passed"] is True
+
+
+@pytest.mark.parametrize("name", ["errand", "rendezvous"])
+def test_the_last_stage_and_the_verdict_agree(name):
+    """最后一环就是目标本身。两边说的不是一回事，记分卡就自相矛盾了。"""
+    scenario = SCENARIO_REGISTRY[name]
+    goal_reached = {
+        "errand": {"Adam Harris": {"cold_medicine": 1}},
+        "rendezvous": {"Mia Thompson": {"cake": 1}},
+    }[name]
+
+    with Town(days=1) as town:
+        scenario.seed(town)
+        last = scenario.stages[-1]
+        assert last.reached(town) is False
+        assert scenario.judge(town)["passed"] is False
+
+        town.economy.seed(holdings=goal_reached)
+        assert last.reached(town) is True
+        assert scenario.judge(town)["passed"] is True

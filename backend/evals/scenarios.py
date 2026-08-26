@@ -34,6 +34,19 @@ from typing import Callable
 
 
 @dataclass(frozen=True)
+class Stage:
+    """一道题的一个中间里程碑。``reached(town) -> bool``，只看世界状态。
+
+    ⚠️ **很多里程碑是转瞬即逝的**：Emma 借到钱那一刻余额是 8，买完药就变成 0；
+    药在她手上，交出去就没了。所以这些必须**在跑的过程中每批决策查一次**，
+    只在最后查等于什么都看不见。runner 记的是**最高水位**。
+    """
+
+    name: str
+    reached: Callable
+
+
+@dataclass(frozen=True)
 class Scenario:
     name: str
     headline: str                 # 一句话说这题考什么
@@ -42,7 +55,17 @@ class Scenario:
     judge: Callable               # judge(town) -> {"passed": bool, "detail": str}
     days: int = 1
     max_decisions: int = 60       # 跑到这么多次决策还没达成，就算没做到
-    watch: tuple = field(default_factory=tuple)   # 想在记分卡里额外看到的东西
+    stages: tuple = field(default_factory=tuple)
+    """走到哪一步了。
+
+    第一张记分卡的教训：``errand`` 十四格全 ✗，而其中一格其实走完了六环里的
+    五环（药已经买到手，只差交付），另一格一个改变世界的动作都没有——
+    **它们在记分卡上长得一模一样**。二元判据在多环任务上信号太稀疏，
+    区分不出任何消融的差异，那一整列就白跑了。
+
+    分段不动判据：``passed`` 仍然只由 ``judge`` 说了算，这里只是让"卡在哪一环"
+    看得见。每一环也仍然只查世界状态。
+    """
 
 
 # --- errand：完整协作链 -------------------------------------------------------
@@ -167,6 +190,46 @@ def _judge_natural(town):
     return {"passed": None, "detail": "控制组，只看行为指标"}
 
 
+# --- 分段用的小工具 -----------------------------------------------------------
+
+def _read_their_mail(who):
+    return lambda town: town.mailbox.unread_counts().get(who, 0) == 0
+
+
+def _took_on_a_job(who):
+    """接下了跨轮的差事。``settle`` 会把落定的任务标掉但不删，所以这一条
+    一旦成立就一直成立——正好，它本来就是个里程碑。"""
+    return lambda town: any(
+        goal.owner == who for goal in town.goals._goals            # noqa: SLF001
+    )
+
+
+def _has(who, item):
+    return lambda town: town.economy.holdings(who).get(item, 0) > 0
+
+
+def _can_afford(who, price):
+    return lambda town: town.economy.balance(who) >= price
+
+
+def _in_the_same_place(first, second):
+    """两个人此刻在同一区域。**转瞬即逝**——所以要在跑的过程中查。"""
+    def check(town):
+        from world.snapshot import area_of
+
+        where = {agent.name: area_of(agent.current_location) for agent in town.agents}
+        return where.get(first) is not None and where.get(first) == where.get(second)
+    return check
+
+
+def _anyone_in(area):
+    def check(town):
+        from world.snapshot import area_of
+
+        return any(area_of(agent.current_location) == area for agent in town.agents)
+    return check
+
+
 SCENARIO_REGISTRY = {
     "errand": Scenario(
         name="errand",
@@ -176,7 +239,25 @@ SCENARIO_REGISTRY = {
         seed=_seed_errand,
         judge=_judge_errand,
         days=1,
-        max_decisions=70,
+        # 这条链天然要跨半天：药房 9 点才开门，借钱要等一个异步来回，
+        # 见面还要再等一次。实测走完要 95-121 次决策，**波动很大**。
+        #
+        # 一路加上来的：70 -> 三次全部卡在最后一步；120 -> 两次通关、
+        # 一次用了 121 次仍然超时。现在给到 300，让它有余量走完。
+        #
+        # **预算太紧会伪造失败**——那不是"做不到"，是"没跑完"。早停在这里
+        # 兜底：达成了就立刻收工，所以富余的预算并不会真的花掉。
+        max_decisions=300,
+        stages=(
+            Stage("读到信", _read_their_mail("Emma Harris")),
+            Stage("记下任务", _took_on_a_job("Emma Harris")),
+            # 开局 3 块，一天之内没有别的收入（社保三天一次）——
+            # 余额到得了 8，只可能是有人转给她。
+            Stage("凑够药钱", _can_afford("Emma Harris", 8)),
+            Stage("买到药", _has("Emma Harris", "cold_medicine")),
+            Stage("和 Adam 碰上面", _in_the_same_place("Emma Harris", "Adam Harris")),
+            Stage("交到 Adam 手上", _has("Adam Harris", "cold_medicine")),
+        ),
     ),
     "rendezvous": Scenario(
         name="rendezvous",
@@ -186,7 +267,16 @@ SCENARIO_REGISTRY = {
         seed=_seed_rendezvous,
         judge=_judge_rendezvous,
         days=1,
-        max_decisions=70,
+        # 和 errand 同一个结构性问题：约定要等到点，见面要两人都到。
+        # 通关的几次用了 24-46 次决策，失败的几次全部撞在 70 这个上限上
+        # ——那是**没跑完**，不是做不到。早停兜着，富余的预算不会真花掉。
+        max_decisions=150,
+        stages=(
+            Stage("读到信", _read_their_mail("Arthur Morgan")),
+            Stage("约定成立", lambda town: town.goals.meeting_record()["arranged"] > 0),
+            Stage("两人碰上面", _in_the_same_place("Arthur Morgan", "Mia Thompson")),
+            Stage("蛋糕交到手", _has("Mia Thompson", "cake")),
+        ),
     ),
     "scarcity": Scenario(
         name="scarcity",
@@ -196,7 +286,15 @@ SCENARIO_REGISTRY = {
         seed=_seed_scarcity,
         judge=_judge_scarcity,
         days=1,
-        max_decisions=50,
+        # 通关用 37-46 次，上限 50 —— 贴得太近了。
+        max_decisions=120,
+        stages=(
+            Stage("有人读到信", lambda town: any(
+                town.mailbox.unread_counts().get(who, 0) == 0
+                for who in ("Emma Harris", "Mia Thompson"))),
+            Stage("有人进了药房", _anyone_in("Pharmacy")),
+            Stage("药被买走", lambda town: town.economy.count("Pharmacy", "cold_medicine") == 0),
+        ),
     ),
     "natural": Scenario(
         name="natural",

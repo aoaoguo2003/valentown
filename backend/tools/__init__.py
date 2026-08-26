@@ -49,6 +49,7 @@ from world.locations import (  # noqa: F401  （re-export）
 )
 from tools.movement import (
     MOVE_TO_PARAMETERS,
+    sleep_available,
     SLEEP_PARAMETERS,
     STAY_PARAMETERS,
     handle_move_to,
@@ -61,12 +62,16 @@ from tools.tasks import ACCEPT_TASK_PARAMETERS, handle_accept_task
 from tools.weather import CHECK_WEATHER_PARAMETERS, handle_check_weather
 from tools.wallet import (
     GIVE_ITEM_PARAMETERS,
+    give_item_available,
     TRANSFER_PARAMETERS,
     handle_give_item,
     handle_transfer,
 )
 from tools.shopping import (
     BUY_PARAMETERS,
+    buy_available,
+    check_stock_available,
+    restock_available,
     CHECK_STOCK_PARAMETERS,
     RESTOCK_PARAMETERS,
     handle_buy,
@@ -104,6 +109,7 @@ TOOL_REGISTRY = {
         parameters=SLEEP_PARAMETERS,
         handler=handle_sleep,
         terminal=True,
+        available_now=sleep_available,
     ),
     "send_mail": ToolSpec(
         name="send_mail",
@@ -141,6 +147,7 @@ TOOL_REGISTRY = {
         terminal=False,
         read_only=True,
         max_per_turn=2,
+        available_now=check_stock_available,
     ),
     "buy": ToolSpec(
         name="buy",
@@ -152,6 +159,7 @@ TOOL_REGISTRY = {
         handler=handle_buy,
         terminal=False,
         max_per_turn=2,
+        available_now=buy_available,
     ),
     "restock": ToolSpec(
         name="restock",
@@ -163,6 +171,7 @@ TOOL_REGISTRY = {
         handler=handle_restock,
         terminal=False,
         max_per_turn=3,
+        available_now=restock_available,
         # 店主身份是永久的，其余五个人一辈子也补不了货——两天真跑里，
         # 这件工具在他们身上白烧了七万多 token。
         eligible=lambda name: name in set(SHOP_OWNERS.values()),
@@ -189,6 +198,7 @@ TOOL_REGISTRY = {
         handler=handle_give_item,
         terminal=False,
         max_per_turn=2,
+        available_now=give_item_available,
     ),
     "check_weather": ToolSpec(
         name="check_weather",
@@ -262,3 +272,32 @@ def function_schemas(agent_name=None):
         for spec in TOOL_REGISTRY.values()
         if spec.is_eligible(agent_name)
     ]
+
+
+def schemas_for_now(agent, world):
+    """按**此刻**再筛一道，返回 ``(schemas, hidden)``。
+
+    ``hidden`` 是 ``[(工具名, 为什么现在用不了), ...]``——调用方要把它写进
+    决策上下文。**摘掉的是 schema，不是能力**：一行「buy（要先进店）」
+    约 11 tokens，而 buy 的完整 schema 是 156。
+
+    起因是量出来的：输入的 85% 是工具 schema，而且每次一模一样。
+
+    ⚠️ 这里走 ``function_schemas``（模块内的名字，调用时才解析）而不是直接
+    遍历注册表——消融实验靠替换那个名字来摘工具，绕过去的话「摘掉的工具」
+    会从这条路重新冒出来。
+
+    ⚠️ ``move_to`` / ``stay`` 没有谓词，所以本轮**至少还剩一个收敛点**。
+    真把它们摘光了，这一轮无论如何都做不出动作——``test_tool_filter.py``
+    钉死了这条。
+    """
+    keep, hidden = [], []
+    for schema in function_schemas(agent.name):
+        name = schema["function"]["name"]
+        spec = TOOL_REGISTRY.get(name)
+        why = spec.unavailable_reason(agent, world) if spec else None
+        if why:
+            hidden.append((name, why))
+        else:
+            keep.append(schema)
+    return keep, hidden

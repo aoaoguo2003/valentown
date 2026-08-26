@@ -25,6 +25,7 @@ import threading
 from pathlib import Path
 
 from config import DATA_DIR
+from world import events
 
 MAILBOX_FILE = DATA_DIR / "mailboxes.json"
 
@@ -68,6 +69,10 @@ class Mailbox:
             box.append(letter)
             self._boxes[recipient] = self._prune(box)
             self._save()
+            # visible_to 空着：**上下文里已经有「你有几封未读」**，
+            # 再说一遍只是费 token。这条只进日志，供排查和判据。
+            events.event_log.record(events.MAIL_SENT, sender,
+                                    recipient=recipient, subject=subject)
             return dict(letter)
 
     def take_unread(self, agent_name):

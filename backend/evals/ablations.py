@@ -39,6 +39,8 @@ class Ablation:
     headline: str
     tools_disabled: tuple = ()
     max_steps: int = None
+    filter_tools: bool = False
+    omit_context: tuple = ()
 
 
 def _everything_except(*keep):
@@ -82,6 +84,21 @@ ABLATION_REGISTRY = {
         name="no-tasks",
         headline="没有跨轮的记事本，全靠上下文里记得住",
         tools_disabled=("accept_task",),
+    ),
+    "state-filtered-tools": Ablation(
+        name="state-filtered-tools",
+        headline="此刻用不了的工具不进 schema，只在上下文里留一行",
+        filter_tools=True,
+    ),
+    "no-events": Ablation(
+        name="no-events",
+        headline="不告诉他上次行动之后发生了什么（钱到账、东西到手）",
+        omit_context=("what_has_happened_since",),
+    ),
+    "no-prices": Ablation(
+        name="no-prices",
+        headline="不告诉他任务里那样东西多少钱",
+        omit_context=("what_things_cost",),
     ),
     "no-recall": Ablation(
         name="no-recall",

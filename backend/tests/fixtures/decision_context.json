@@ -1,0 +1,95 @@
+{
+  "bare": {
+    "kwargs": {
+      "internal_state": {
+        "values": {
+          "hunger": 40,
+          "energy": 80,
+          "social": 60
+        }
+      },
+      "triggers": [],
+      "day_number": 1,
+      "time_text": "7:00 AM",
+      "current_location": "Emma_home.Living_room"
+    },
+    "expected": "It is day 1, 7:00 AM in Valentown. Here is a basic description of you: Emma Harris is a dedicated and caring mother in her early 30s, living in Valentown with her husband, Gavin, and their 7-year-old son, Adam.\n        As a full-time mother, Emma's life revolves around nurturing her family and maintaining a balanced household. She is kind-hearted, always willing to lend a helping hand to her neighbors and fellow parents, and is always happy to play with friends.\nYou are currently at Emma_home.Living_room.\nYou cannot see anyone else from here.\nYour mailbox is empty; nobody has written to you.\nWhat you just finished: Just woke up; nothing done yet today.\nYour internal needs (0-100): hunger 40, energy 80, social 60.\nActive need triggers:\n- No urgent needs right now.\nYour recent memories:\nNo recent memories.\nDecide the single next thing you will do. Satisfy urgent needs first; otherwise act in character and vary your day. Use plain English only."
+  },
+  "full": {
+    "kwargs": {
+      "internal_state": {
+        "values": {
+          "hunger": 90,
+          "energy": 30,
+          "social": 50
+        }
+      },
+      "triggers": [
+        {
+          "need": "hunger",
+          "reason": "very hungry",
+          "intent": "seek_food"
+        }
+      ],
+      "day_number": 3,
+      "time_text": "10:00 AM",
+      "current_location": "Pharmacy.Boss",
+      "last_action": "walked to the pharmacy",
+      "visible_agents": [
+        "Ella Parker"
+      ],
+      "unread_letters": 2,
+      "balance": 3,
+      "holdings": {
+        "cake": 1,
+        "milk": 0
+      },
+      "weather": "light showers",
+      "tasks": "You are on the hook for: get cold_medicine to Adam Harris before 12:00 PM.\n",
+      "hidden_tools": [
+        [
+          "buy",
+          "you have to be standing inside a shop"
+        ],
+        [
+          "give_item",
+          "there is nobody here to hand anything to"
+        ]
+      ]
+    },
+    "expected": "It is day 3, 10:00 AM in Valentown. Here is a basic description of you: Emma Harris is a dedicated and caring mother in her early 30s, living in Valentown with her husband, Gavin, and their 7-year-old son, Adam.\n        As a full-time mother, Emma's life revolves around nurturing her family and maintaining a balanced household. She is kind-hearted, always willing to lend a helping hand to her neighbors and fellow parents, and is always happy to play with friends.\nYou are currently at Pharmacy.Boss.\nPeople you can see from here: Ella Parker.\nYou have 2 unread letters waiting in your mailbox.\nYou have 3 in your purse and are carrying cake x1.\nThe weather right now: light showers.\nYou are on the hook for: get cold_medicine to Adam Harris before 12:00 PM.\nAlso possible, but not from where you are right now: buy (you have to be standing inside a shop); give_item (there is nobody here to hand anything to). They still exist — move or get what you need first, then use them.\nWhat you just finished: walked to the pharmacy\nYour internal needs (0-100): hunger 90, energy 30, social 50.\nActive need triggers:\n- hunger: very hungry (intent: seek_food)\nYour recent memories:\nNo recent memories.\nDecide the single next thing you will do. Satisfy urgent needs first; otherwise act in character and vary your day. Use plain English only."
+  },
+  "mid_turn": {
+    "kwargs": {
+      "internal_state": {
+        "values": {
+          "hunger": 20,
+          "energy": 70,
+          "social": 40
+        }
+      },
+      "triggers": [],
+      "day_number": 2,
+      "time_text": "3:00 PM",
+      "current_location": "Park.Bench",
+      "balance": 15,
+      "holdings": {},
+      "weather": "clear",
+      "scratchpad": [
+        {
+          "tool": "check_inbox",
+          "summary": "",
+          "ok": true,
+          "observation": "You read 1 letter: come to the cafe."
+        },
+        {
+          "tool": "move_to",
+          "summary": "destination='Pharmacy.Boss'",
+          "ok": false,
+          "observation": "Pharmacy is closed at 3:00 PM."
+        }
+      ]
+    },
+    "expected": "It is day 2, 3:00 PM in Valentown. Here is a basic description of you: Emma Harris is a dedicated and caring mother in her early 30s, living in Valentown with her husband, Gavin, and their 7-year-old son, Adam.\n        As a full-time mother, Emma's life revolves around nurturing her family and maintaining a balanced household. She is kind-hearted, always willing to lend a helping hand to her neighbors and fellow parents, and is always happy to play with friends.\nYou are currently at Park.Bench.\nYou cannot see anyone else from here.\nYour mailbox is empty; nobody has written to you.\nYou have 15 in your purse and are carrying nothing.\nThe weather right now: clear.\nWhat you just finished: Just woke up; nothing done yet today.\nWhat you noticed last time: Nobody else is here.\nYour internal needs (0-100): hunger 20, energy 70, social 40.\nActive need triggers:\n- No urgent needs right now.\nYour recent memories:\nNo recent memories.\nWhat you have found out this turn:\n- You read 1 letter: come to the cafe.\nWhat the town refused this turn — do not try these again:\n- move_to(destination='Pharmacy.Boss'): Pharmacy is closed at 3:00 PM.\nUse what you already know instead of asking again, and work around the refusals rather than repeating them.\nDecide the single next thing you will do. Satisfy urgent needs first; otherwise act in character and vary your day. Use plain English only."
+  }
+}

@@ -44,7 +44,7 @@ api/ + main.py  HTTP 契约与启动入口
 |---|---|
 | **`world/`** | 世界服务。`clock` `locations` `economy` `weather` `goals` `mailbox` `snapshot` |
 | **`tools/`** | 工具注册表。14 件工具，每件 = schema + handler + 三个标记 |
-| **`runtime/`** | `agent_runtime.py` 决策循环（不认识任何具体工具）、`scheduler.py` 隔离小镇 + 全局时钟 |
+| **`runtime/`** | `agent_runtime.py` 决策循环 · `scheduler.py` 隔离小镇 + 全局时钟 · `context_builder.py` 这一轮让居民看见什么 |
 | **`agents/`** | `agent.py` 角色与上下文组装，`state.py` 需求值与触发器 |
 | **`memory/`** | 记忆库、三因子检索、反思、persona |
 | **`observability/`** | `trace.py` 写日志（热路径），`metrics.py` 读日志算指标 |
@@ -95,6 +95,51 @@ __init__.py        TOOL_REGISTRY + get_tool/function_schemas + re-export
 `world/mailbox.py + tools/communication.py`、`world/economy.py + tools/shopping.py`。
 **这条路已经走过五遍**（stay、通信、库存、钱包、天气），决策循环
 从写完到现在一行没改过——这是注册表设计最好的证据。
+
+### 工具过滤：摘的是字数，不是能力
+
+量出来的事实：一次决策 `prompt_tokens` 中位 **4279**，而真正的决策上下文只有
+约 **649**——**输入的 85% 是工具 schema**，而且每次调用一模一样。
+
+所以 `ToolSpec.available_now` 这个谓词回答「此刻调它会不会**必被拒**」。
+命中的工具**完整 schema 不进请求**（一件 150–350 tokens），改成上下文里一行
+「buy（要先进店）」（约 11 tokens）。实测 Emma 在家 13 件 → 10 件，净省
+约 470 tokens ≈ **整个输入的 11%**。
+
+⚠️ **能力的可见性是规划的前提**这条没变。看不见的能力模型不会为它做计划，
+只会在「当下能做什么」里打转——errand 那道题的唯一出路是写信借钱，而 Emma
+当时站在药房里。所以那一行必须点明「它们还在，只是得先满足条件」。
+
+⚠️ 谓词和 handler 里的检查是**同一件事写了两遍**，走散的后果不对称：
+谓词过严 → 模型看不见一件其实能用的工具（**丢能力**）；过松 → 白给一次拒绝
+（无害）。所以拿不准就返回 None，并且 `test_tool_filter.py` 有一组参数化测试
+（5 件工具 × 5 个地点 × 3 个居民）拿真 handler 反着对账。
+
+`move_to` / `stay` 故意没有谓词——它们是**本轮唯一的收敛点**，摘光了这一轮
+无论如何都做不出动作，而且不会报错。
+
+### `runtime/context_builder.py` —— 这一轮让居民看见什么
+
+原本是 `agents/agent.py` 里一个 110 行、12 个参数的方法。搬出来是因为
+**它干的事跟「谁」无关**：七个居民用同一套组装规则，把规则藏在角色定义里，
+规则就只能以注释的形式散在函数体中间。
+
+三条规则，每条写在对应的段函数的 docstring 里：
+
+```
+① 分界线是「这是关于谁的」，不是信息量
+     自己的（钱、背包、需求、任务）免费进
+     别人的、店里的、信里的，要花一个动作去取
+② 当下免费，未来要查
+     当前天气免费（抬头看得见），预报要调 check_weather
+③ 本轮的经历分两段摆
+     「已经知道的」只给结果；「被拒绝的」保留工具和参数
+```
+
+抽的时候先把三份输出录成标尺（`tests/fixtures/decision_context.json`），
+重构后**一字不差**才算搬完——「我只是搬了个家」不能只是自称。
+那份标尺现在兼职另一件事：**prompt 变了测试就红**，逼你确认那是有意的。
+确认之后用 `python -m tests.regenerate_context_fixture` 重录。
 
 ### `observability/` —— 两个方向
 
@@ -371,7 +416,7 @@ Pharmacy 四种药各 8 元/**上限仅 2 个**（稀缺是故意的，否则超
 ## 命令
 
 ```bash
-cd backend && python -m pytest tests/ -q      # 298 个测试，无 LLM 调用、无真实网络
+cd backend && python -m pytest tests/ -q      # 353 个测试，无 LLM 调用、无真实网络
 node scripts/smoke_24h.js                     # 路径 smoke test
 python scripts/dry_run.py --days 2            # 真实 LLM 驱动整座小镇（花钱）
 python scripts/dry_run.py --days 2 --scenario errand   # 埋一个起因，验证协作链
@@ -399,6 +444,11 @@ python -m evals.runner --scenario all --ablate all --repeats 2  # 整张记分�
 - **评估集**：`runtime/scheduler.py`（`dry_run` 和 `evals` 共用的引擎）+ 四道题 +
   七种消融 + 记分卡。`scarcity` 首跑 PASS，**没有超卖**——那把原子锁第一次被真正考验
 - **成本指标**：token / 延迟 / 重试从 LLM 日志算，评估按格拆
+- **LLM 熔断**：401/402/403 不会自己好，撞上就拉闸。同样的故障下发出的请求
+  从 1927 次降到 1 次
+- **记分卡分得清「模型没做到」和「后端挂了」**：模型一次都没成功应答过的格子
+  标 `ERR`，**整个不进对照表**。一张会说谎的记分卡比没有记分卡糟
+- **工具按此刻状态过滤**（省 11% 输入）+ **`context_builder` 抽出**（纯结构，输出不变）
 - **架构约束进了测试**（`tests/test_layout.py`）：存档必须在 backend/ 根下、
   `world/` 顶层不许 import 上层、`world/__init__.py` 必须空、`SHOP_OWNERS` 只许有一处
 
@@ -431,7 +481,8 @@ Adam 买药，而她差 5 块钱。
 - [ ] **B1 跨轮不该重走死路。** errand 的 trace 铁证：Emma 在 9:20 / 10:35 / 11:50
   把「走到药房 → 买 → 差 5 块 → 兜底」原样重演三遍。轮**内** replan 92.9% 很好，
   轮**与轮之间**只传了一条 `last_observation`。对应框架里的 `BLOCKED / WAITING`
-- [ ] **B2 JSON 参数解析失败 = 直接兜底，惩罚过重。** 模型把 `"nobody"` 写成裸
+- [ ] ~~**B2 JSON 解析失败**~~ —— 量过了，只影响 **0.25%**（8/3200 轮），不值得优先。
+  原文留档： 模型把 `"nobody"` 写成裸
   `nobody`，`call_tools` 返回 None，循环判成「LLM 不可用」当场放弃整轮；而编错
   工具名只被拒一步还能重来。同样的小错，代价差一个数量级——该给它一次带着
   「你的 JSON 坏了」重来的机会
@@ -448,8 +499,7 @@ Adam 买药，而她差 5 块钱。
 
 ### C. 框架里规划了、还没长出来的
 
-- [ ] **C1** `runtime/context_builder.py` —— 现在是 `agents/agent.py` 里 110 行的
-  `build_decision_context`。⚠️ 抽它的理由是**可测、可讲**，不是省 token（见 B5）
+- [x] ~~**C1** `runtime/context_builder.py`~~ —— 抽完了，输出一字不差，12 个契约测试
 - [ ] **C2** `runtime/budgets.py` —— 框架 Phase 7 缺的唯一一项：token / 每日调用预算
 - [ ] **C3** `api/persistence.py` —— `routes.py` 五百多行里六个路由是纯存档读写
 - [ ] **C4** `world/events.py` + 事件驱动唤醒。
@@ -462,6 +512,56 @@ Adam 买药，而她差 5 块钱。
   工具注册表、会拒绝的世界、四个世界系统、评估集。**这是简历链接过去第一眼看到的**
 - [ ] **D2** 记分卡数字进 README（「基线 ✓ / 改造前 ✗」比任何形容词都硬）
 - [ ] **D3** GitHub About + topics + 演示 GIF
+
+## 怎么让模型改变行为（四个实验，一正三负）
+
+`errand` 这道题上，七种配置十四格**全部卡死在「凑够药钱」这一环**——
+她读到信、记下任务、走到药房、发现钱不够，然后就再也没有开口借过钱。
+围绕这一个卡点做了四次实验，每次都用单步评估量（一次 24 调用、两分钟）：
+
+| 做法 | 落点 | 结果 |
+|---|---|---|
+| 把价格放进 context | 买之前 | **没用** 0/3 |
+| 工具描述里叮嘱「先对一下钱包」 | 买之前 | **没用** 0/3 |
+| 必填一个 `cost` 字段，逼它把数字打出来 | 买之前 | **没用** 0/3 |
+| **拒绝理由里点明「写信问人借」** | **撞墙那一刻** | **有用** 0/14 → 3/3 |
+
+三次失败的共同点是它们都在**事前**做文章。看它当时的 thought 就明白了：
+
+```
+"I need to buy cold medicine for Adam who has a fever."
+"My son Adam has a fever and needs cold medicine. I'm at the pharmacy."
+```
+
+**任务一急，约束就隐形。**价格摆在余额下一行也不看，必填字段填了照样点 buy。
+
+所以这条经验是：
+
+> **在撞墙的那一刻指出那条路，比在系统提示里泛泛叮嘱管用得多。**
+
+同一条规律此前已经在 `movement.py` 的 `target_absent` 上出现过一次（旧措辞
+只说"你得先弄清楚他们在哪"，三天 94 次撞墙，模型一次都没想到写信打听；
+改成点明"可以写信问"之后就用上了）。现在有**两个独立的例子**，而且这次是
+**先做了三个失败的实验、再做成功的**——对比比孤立的成功案例值钱。
+
+### 措辞怎么写
+
+给**岔路口**，不是给答案：
+
+```
+You are 5 short. Decide whether you really need it: if it can wait, or
+something cheaper will do, leave it. If you do need it, write to someone
+and ask them to send you the money — nobody can hand you cash in person.
+```
+
+- **先让它判断这东西是不是非要不可**——直接说"去借钱"会把它推向一个未必
+  对的方向，镇上大多数东西本来就可以不买
+- **最后那句是世界规则，不是喂答案**：镇上没有当面要钱这件事，钱只能由
+  对方主动 `transfer`。模型无从推断这一点，除非告诉它
+
+⚠️ 这条经验**不能推广成"多写提示"**。三个失败的实验恰恰证明了：写在
+schema 里、写在描述里、写成必填字段，都不管用。有效的是**时机**——
+失败刚发生、模型正要重新规划的那一刻。
 
 ## 工作约定
 

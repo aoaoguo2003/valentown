@@ -1,0 +1,362 @@
+{
+    "agent_name": "Emma Harris",
+    "retention_days": 15,
+    "current_life_day": 2,
+    "memories": [
+        {
+            "content": "Emma Harris: Did 'Make and eat a hearty breakfast to start the day.' at Emma_home.Kitchen.",
+            "category": "action",
+            "importance": 4,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-11T14:54:30.856117"
+        },
+        {
+            "content": "Emma Harris: Did 'Tidy up the kitchen and wash the breakfast dishes.' at Emma_home.Kitchen.",
+            "category": "action",
+            "importance": 4,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-11T15:02:50.174307"
+        },
+        {
+            "content": "Emma Harris: Did 'Relax on the sofa and browse through a magazine.' at Emma_home.Sofa.",
+            "category": "action",
+            "importance": 1,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-11T15:40:51.769940"
+        },
+        {
+            "content": "Emma Harris: Did 'Head to the park to meet up with a friend.' at Park.Bench.",
+            "category": "action",
+            "importance": 4,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-11T20:23:11.442452"
+        },
+        {
+            "content": "Emma Harris: Did 'Chat and catch up with a friend at the park bench.' at Park.Bench.",
+            "category": "action",
+            "importance": 5,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-11T21:20:23.441542"
+        },
+        {
+            "content": "Emma Harris: Did 'Stroll through the park and enjoy the fresh air.' at Park.Flower_bed.",
+            "category": "action",
+            "importance": 2,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-11T21:32:00.294545"
+        },
+        {
+            "content": "Emma Harris: Did 'Admire the flowers and do a little light gardening.' at Park.Flower_bed.",
+            "category": "action",
+            "importance": 2,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-11T21:43:02.938756"
+        },
+        {
+            "content": "Emma Harris: Did 'Take a leisurely stroll and enjoy the park scenery.' at Park.River.",
+            "category": "action",
+            "importance": 2,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-11T21:43:36.273197"
+        },
+        {
+            "content": "Emma Harris: Did 'Sit on a park bench and watch Adam play at the playground.' at Park.Playground.",
+            "category": "action",
+            "importance": 4,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-11T21:44:15.981563"
+        },
+        {
+            "content": "Emma Harris: Talked to Adam Harris at Park: \"\"It's so nice to see you out here today, Adam!\"\"",
+            "category": "communication",
+            "importance": 3,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-11T21:44:24.700921"
+        },
+        {
+            "content": "Emma Harris: Did 'chat' at Park.Playground.",
+            "category": "action",
+            "importance": 2,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-11T21:44:31.409926"
+        },
+        {
+            "content": "Emma Harris: Did 'Head home and start preparing a wholesome dinner for the family.' at Emma_home.Kitchen.",
+            "category": "action",
+            "importance": 2,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-11T22:08:57.568549"
+        },
+        {
+            "content": "Emma Harris: Did 'Sit down and enjoy a warm family dinner together.' at Emma_home.Chair.",
+            "category": "action",
+            "importance": 4,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-11T22:10:10.912478"
+        },
+        {
+            "content": "Emma Harris: Did 'Wind down and read a book before bed on the sofa.' at Emma_home.Reading_chair.",
+            "category": "action",
+            "importance": 2,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-12T01:13:45.357009"
+        },
+        {
+            "content": "Emma Harris: Did 'Wind down and read a bedtime story to Adam before sleep.' at Emma_home.Reading_chair.",
+            "category": "action",
+            "importance": 4,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-12T01:14:49.661304"
+        },
+        {
+            "content": "Emma Harris: Did 'Tuck Adam into bed and wish him a good night.' at Emma_home.Living_room.",
+            "category": "action",
+            "importance": 6,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-12T01:19:55.766760"
+        },
+        {
+            "content": "Emma Harris: Did 'Settle into the sofa and wind down with a relaxing book before bed.' at Emma_home.Sofa.",
+            "category": "action",
+            "importance": 2,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-12T01:22:51.753898"
+        },
+        {
+            "content": "Emma Harris: Did 'Settle into bed and get a good night's sleep.' at Emma_home.Sofa.",
+            "category": "action",
+            "importance": 1,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-12T01:23:59.782710"
+        },
+        {
+            "content": "Emma Harris: Did 'Settle into bed and get a good night's sleep.' at Emma_home.Sofa.",
+            "category": "action",
+            "importance": 1,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-12T01:25:06.456989"
+        },
+        {
+            "content": "Emma Harris: Did 'Settle onto the sofa and wind down for a good night's sleep.' at Emma_home.Sofa.",
+            "category": "action",
+            "importance": 1,
+            "agent_name": "Emma Harris",
+            "life_day": 1,
+            "timestamp": "2026-06-12T04:31:55.134787"
+        },
+        {
+            "content": "Emma Harris: Self-reflection: Emma Harris is a warm, nurturing woman who finds deep fulfillment in the rhythms of everyday family life. She is devoted to her son Adam, taking genuine pleasure in watching him play, reading him bedtime stories, and sharing meals together. She values connection and simplicity, spending her days moving between home and the local park, tending to small domestic tasks with quiet contentment. She enjoys leisurely strolls, a good book, and catching up with friends. Recent days have reinforced her sense of purpose as a caring mother and community member, grounding her identity in the gentle, unhurried pleasures of home, nature, and meaningful relationships.",
+            "category": "reflection",
+            "importance": 10,
+            "agent_name": "Emma Harris",
+            "life_day": 2,
+            "timestamp": "2026-06-12T04:32:25.677485",
+            "level": 1,
+            "base_memories": [
+                {
+                    "content": "Emma Harris: Did 'Chat and catch up with a friend at the park bench.' at Park.Bench.",
+                    "category": "action",
+                    "importance": 5,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T21:20:23.441542"
+                },
+                {
+                    "content": "Emma Harris: Did 'Sit down and enjoy a warm family dinner together.' at Emma_home.Chair.",
+                    "category": "action",
+                    "importance": 4,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T22:10:10.912478"
+                },
+                {
+                    "content": "Emma Harris: Did 'Head to the park to meet up with a friend.' at Park.Bench.",
+                    "category": "action",
+                    "importance": 4,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T20:23:11.442452"
+                },
+                {
+                    "content": "Emma Harris: Did 'Wind down and read a bedtime story to Adam before sleep.' at Emma_home.Reading_chair.",
+                    "category": "action",
+                    "importance": 4,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-12T01:14:49.661304"
+                },
+                {
+                    "content": "Emma Harris: Did 'Tidy up the kitchen and wash the breakfast dishes.' at Emma_home.Kitchen.",
+                    "category": "action",
+                    "importance": 4,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T15:02:50.174307"
+                },
+                {
+                    "content": "Emma Harris: Talked to Adam Harris at Park: \"\"It's so nice to see you out here today, Adam!\"\"",
+                    "category": "communication",
+                    "importance": 3,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T21:44:24.700921"
+                },
+                {
+                    "content": "Emma Harris: Did 'Head home and start preparing a wholesome dinner for the family.' at Emma_home.Kitchen.",
+                    "category": "action",
+                    "importance": 2,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T22:08:57.568549"
+                },
+                {
+                    "content": "Emma Harris: Did 'chat' at Park.Playground.",
+                    "category": "action",
+                    "importance": 2,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T21:44:31.409926"
+                },
+                {
+                    "content": "Emma Harris: Did 'Tuck Adam into bed and wish him a good night.' at Emma_home.Living_room.",
+                    "category": "action",
+                    "importance": 6,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-12T01:19:55.766760"
+                },
+                {
+                    "content": "Emma Harris: Did 'Relax on the sofa and browse through a magazine.' at Emma_home.Sofa.",
+                    "category": "action",
+                    "importance": 1,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T15:40:51.769940"
+                },
+                {
+                    "content": "Emma Harris: Did 'Stroll through the park and enjoy the fresh air.' at Park.Flower_bed.",
+                    "category": "action",
+                    "importance": 2,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T21:32:00.294545"
+                },
+                {
+                    "content": "Emma Harris: Did 'Settle into the sofa and wind down with a relaxing book before bed.' at Emma_home.Sofa.",
+                    "category": "action",
+                    "importance": 2,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-12T01:22:51.753898"
+                },
+                {
+                    "content": "Emma Harris: Did 'Make and eat a hearty breakfast to start the day.' at Emma_home.Kitchen.",
+                    "category": "action",
+                    "importance": 4,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T14:54:30.856117"
+                },
+                {
+                    "content": "Emma Harris: Did 'Sit on a park bench and watch Adam play at the playground.' at Park.Playground.",
+                    "category": "action",
+                    "importance": 4,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T21:44:15.981563"
+                },
+                {
+                    "content": "Emma Harris: Did 'Wind down and read a book before bed on the sofa.' at Emma_home.Reading_chair.",
+                    "category": "action",
+                    "importance": 2,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-12T01:13:45.357009"
+                },
+                {
+                    "content": "Emma Harris: Did 'Take a leisurely stroll and enjoy the park scenery.' at Park.River.",
+                    "category": "action",
+                    "importance": 2,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T21:43:36.273197"
+                },
+                {
+                    "content": "Emma Harris: Did 'Admire the flowers and do a little light gardening.' at Park.Flower_bed.",
+                    "category": "action",
+                    "importance": 2,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T21:43:02.938756"
+                },
+                {
+                    "content": "Emma Harris: Did 'Settle into bed and get a good night's sleep.' at Emma_home.Sofa.",
+                    "category": "action",
+                    "importance": 1,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-12T01:25:06.456989"
+                },
+                {
+                    "content": "Emma Harris: Did 'Settle into bed and get a good night's sleep.' at Emma_home.Sofa.",
+                    "category": "action",
+                    "importance": 1,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-12T01:23:59.782710"
+                },
+                {
+                    "content": "Emma Harris: Did 'Settle onto the sofa and wind down for a good night's sleep.' at Emma_home.Sofa.",
+                    "category": "action",
+                    "importance": 1,
+                    "agent_name": "Emma Harris",
+                    "life_day": 1,
+                    "timestamp": "2026-06-12T04:31:55.134787"
+                }
+            ]
+        },
+        {
+            "content": "Emma Harris: Did 'Make and eat a nourishing breakfast to start the day.' at Emma_home.Kitchen.",
+            "category": "action",
+            "importance": 1,
+            "agent_name": "Emma Harris",
+            "life_day": 2,
+            "timestamp": "2026-06-12T14:42:48.107977"
+        },
+        {
+            "content": "Emma Harris: Did 'take a relaxing walk in the park' at Park.Bench.",
+            "category": "action",
+            "importance": 5,
+            "agent_name": "Emma Harris",
+            "life_day": 2,
+            "timestamp": "2026-08-26T23:24:53.783708"
+        },
+        {
+            "content": "Emma Harris: Replied to Mia Thompson at Park: \"Hi Mia! It's so nice to see you too.\"",
+            "category": "communication",
+            "importance": 6,
+            "agent_name": "Emma Harris",
+            "life_day": 2,
+            "timestamp": "2026-08-26T23:25:07.821405"
+        }
+    ]
+}

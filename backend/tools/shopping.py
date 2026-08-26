@@ -8,6 +8,39 @@
 """
 
 from world.economy import ALL_ITEMS, CATALOG
+
+
+def _here(agent, world):
+    """此刻站在哪个区域。和下面各 handler 里的算法逐字一致——
+    两处走散会让模型看不见一件其实能用的工具。"""
+    from world.snapshot import area_of
+
+    return area_of((world.agent_locations or {}).get(agent.name) or agent.current_location)
+
+
+def buy_available(agent, world):
+    """必须站在有货架的店里。账本能远程看，东西不能远程拿。"""
+    if _here(agent, world) not in CATALOG:
+        return "you have to be standing inside a shop"
+    return None
+
+
+def check_stock_available(agent, world):
+    """要在店里——除非你是店主，店主随身带着自己那本账。"""
+    from world.economy import SHOP_OWNERS
+
+    if _here(agent, world) in CATALOG or agent.name in set(SHOP_OWNERS.values()):
+        return None
+    return "you have to be inside a shop, unless you own one"
+
+
+def restock_available(agent, world):
+    """只有站在自己店里才能进货。店主身份那一层由 eligible 筛过了。"""
+    from world.economy import SHOP_OWNERS
+
+    if SHOP_OWNERS.get(_here(agent, world)) == agent.name:
+        return None
+    return "you have to be standing in your own shop"
 from tools.base import THOUGHT_FIELD, accept, reject
 
 
@@ -142,13 +175,27 @@ def handle_buy(agent, args, world=None):
     result = economy.buy(agent.name, item)
     if not result["ok"]:
         if result["reason"] == "insufficient_funds":
-            # 钱不够是**可以想办法**的失败：说清楚差多少，模型才可能去
-            # 借钱、换便宜的东西，或者放弃。只说"买不起"等于没说。
+            # 钱不够是**可以想办法**的失败。旧措辞是"你得从别处弄钱"——
+            # 说了差多少，却从不点明**怎么弄**。真跑的结果很干净：三道题
+            # 七种配置全部卡死在"凑够药钱"这一环，没有一次开口借钱。
+            #
+            # 这里给的是**一个岔路口，不是一个答案**：先判断这东西是不是
+            # 非要不可，不是就放下；是，才去借。直接说"去借钱"会把它推向
+            # 一个未必对的方向——小镇里大多数东西本来就可以不买。
+            #
+            # ⚠️ 而"写信"这一句不是喂答案，是**世界规则**：镇上没有当面
+            # 要钱这件事，钱只能由对方主动 transfer 过来。模型无从推断
+            # 这一点，除非我们告诉它。
+            #
+            # 同一个套路在 movement.py 的 target_absent 上用过（旧措辞下
+            # 94 次撞墙，模型一次都没想到写信打听）。
             return reject(
                 "insufficient_funds",
                 f"{item} costs {result['cost']} but you only have {result['balance']}. "
-                f"You are {result['short_by']} short — you would need to get money "
-                f"from somewhere, or buy something cheaper.",
+                f"You are {result['short_by']} short. Decide whether you really need "
+                f"it: if it can wait, or something cheaper will do, leave it. If you "
+                f"do need it, write to someone and ask them to send you the money — "
+                f"nobody can hand you cash in person.",
             )
         return reject(
             "out_of_stock",

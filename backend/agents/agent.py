@@ -79,123 +79,40 @@ class Agent:
     def build_decision_context(self, internal_state, triggers, day_number, time_text,
                                current_location, last_action=None, scratchpad=None,
                                visible_agents=None, unread_letters=0, balance=None,
-                               weather=None, tasks="", holdings=None):
+                               weather=None, tasks="", holdings=None,
+                               hidden_tools=None, wanted_items=(),
+                               recent_events=(), omit_context=()):
         """组装一次决策所需的全部上下文。
 
-        循环的每一步都会重新调用它，因为 ``scratchpad``（本轮已经试过
-        什么、环境回了什么）每一步都在变。把它从决策方法里拆出来，正是
-        为了让"想一次"和"想很多次"共用同一套上下文规则。
+        真正的规则在 ``runtime/context_builder.py``——那一层跟"谁"无关，
+        七个居民用的是同一套。这里留一层薄壳，是因为组装需要居民自己的
+        东西（角色描述、上一条 observation、他的记忆库），而且既有调用方
+        不必知道内部怎么分的段。
 
-        ``visible_agents`` 只包含此刻和自己处在同一区域的人——这是居民
-        能合法获知的全部他人位置信息。远处谁在哪不进上下文，想知道只能
-        靠打听。
+        循环的每一步都会重新调用它，因为 ``scratchpad``（本轮试过什么、
+        环境回了什么）每一步都在变。
         """
-        values = (internal_state or {}).get("values", {})
-        trigger_lines = "\n".join(
-            f"- {trigger['need']}: {trigger['reason']} (intent: {trigger['intent']})"
-            for trigger in (triggers or [])
-        ) or "- No urgent needs right now."
-        last_action_text = last_action or "Just woke up; nothing done yet today."
+        from runtime.context_builder import ContextRequest, build
 
-        retrieval_query = (
-            f"At {current_location}, {time_text}. "
-            f"Needs - hunger {values.get('hunger', '?')}, energy {values.get('energy', '?')}, "
-            f"social {values.get('social', '?')}. {trigger_lines} "
-            f"Just finished: {last_action_text}"
-        )
-
-        persona = persona_store.get(self.name)
-        persona_line = f"Your evolving self-reflection: {persona}\n" if persona else ""
-
-        if visible_agents:
-            here_line = f"People you can see from here: {', '.join(visible_agents)}.\n"
-        else:
-            here_line = "You cannot see anyone else from here.\n"
-
-        # 未读**数量**是免费的，和"你饿了"这类需求提示走同一条路；信的
-        # **内容**仍然要花一步调 check_inbox 去取。全文若也自动塞进来，
-        # 就等于每次决策都为可能用不上的信件付 token。
-        if unread_letters:
-            plural = "letter" if unread_letters == 1 else "letters"
-            mail_line = (
-                f"You have {unread_letters} unread {plural} waiting in your mailbox.\n"
-            )
-        else:
-            # 空邮箱也要明说。真跑两天的数据：check_inbox 被调了 49 次，
-            # 其中 48 次空手而归——因为"没信就不提示"让模型只能盲查。
-            mail_line = "Your mailbox is empty; nobody has written to you.\n"
-
-        # 钱和随身物品都是**免费**的自我感知：自己兜里有什么，不必花一步去数。
-        # 判据不是信息量大小，而是"这是关于谁的"——自己的东西随时知道，
-        # 别人的钱、店里的货、信的内容都得动作才能得知。
-        if balance is not None:
-            carried = ", ".join(
-                f"{item} x{count}" for item, count in sorted((holdings or {}).items()) if count > 0
-            )
-            purse_line = (
-                f"You have {balance} in your purse and are carrying "
-                f"{carried if carried else 'nothing'}.\n"
-            )
-        else:
-            purse_line = ""
-
-        # 当前天气免费——抬头就能看见。未来几小时要调 check_weather 才知道。
-        weather_line = f"The weather right now: {weather}.\n" if weather else ""
-
-        # 在办的任务免费进上下文，和未读信数量、余额、当前天气同级。
-        # 真跑的数据已经证明：不进上下文的东西，模型下一轮就忘了。
-        task_line = tasks or ""
-
-        observation_line = (
-            f"What you noticed last time: {self.last_observation}\n"
-            if self.last_observation else ""
-        )
-
-        # 本轮的经历分两类摆出来。混在一起的话，"我刚知道的事实"和"这条路
-        # 走不通"长得一模一样，那句"别重复被拒的"也就淹没在列表里了——
-        # 三天真跑里出现了 83 次同一轮内重复提问。
-        scratchpad_block = ""
-        if scratchpad:
-            learned = [entry for entry in scratchpad if entry["ok"]]
-            refused = [entry for entry in scratchpad if not entry["ok"]]
-            parts = []
-            if learned:
-                facts = "\n".join(f"- {entry['observation']}" for entry in learned)
-                parts.append(f"What you have found out this turn:\n{facts}")
-            if refused:
-                walls = "\n".join(
-                    f"- {entry['tool']}({entry['summary']}): {entry['observation']}"
-                    for entry in refused
-                )
-                parts.append(
-                    f"What the town refused this turn — do not try these again:\n{walls}"
-                )
-            parts.append(
-                "Use what you already know instead of asking again, and work around "
-                "the refusals rather than repeating them."
-            )
-            scratchpad_block = "\n".join(parts) + "\n"
-
-        return (
-            f"It is day {day_number}, {time_text} in Valentown. "
-            f"Here is a basic description of you: {self.character_description.strip()}\n"
-            f"{persona_line}"
-            f"You are currently at {current_location}.\n"
-            f"{here_line}"
-            f"{mail_line}"
-            f"{purse_line}"
-            f"{weather_line}"
-            f"{task_line}"
-            f"What you just finished: {last_action_text}\n"
-            f"{observation_line}"
-            f"Your internal needs (0-100): hunger {values.get('hunger', '?')}, "
-            f"energy {values.get('energy', '?')}, social {values.get('social', '?')}.\n"
-            f"Active need triggers:\n{trigger_lines}\n"
-            f"Your recent memories:\n{self._recent_memory_context(retrieval_query)}\n"
-            f"{scratchpad_block}"
-            "Decide the single next thing you will do. Satisfy urgent needs first; "
-            "otherwise act in character and vary your day. Use plain English only."
-        )
+        return build(self, ContextRequest(
+            internal_state=internal_state,
+            triggers=triggers,
+            day_number=day_number,
+            time_text=time_text,
+            current_location=current_location,
+            last_action=last_action,
+            scratchpad=scratchpad,
+            visible_agents=visible_agents,
+            unread_letters=unread_letters,
+            balance=balance,
+            holdings=holdings,
+            weather=weather,
+            tasks=tasks,
+            hidden_tools=hidden_tools or [],
+            wanted_items=tuple(wanted_items),
+            recent_events=tuple(recent_events),
+            omit=frozenset(omit_context),
+        ))
 
     def fallback_next_action(self, triggers):
         """当 LLM 不可用时使用的确定性、由需求驱动的规则，

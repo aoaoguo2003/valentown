@@ -44,6 +44,7 @@ class ToolSpec:
     max_per_turn: int = 0     # 一轮之内最多调几次；0 表示不限
     read_only: bool = False   # 纯查询吗？纯查询重复问同一件事没有意义
     eligible: Callable = None  # 谁**永远**用得上；None 表示人人可见
+    available_now: Callable = None  # 此刻用得上吗？见 unavailable_reason
 
     def is_eligible(self, agent_name):
         """``agent_name`` 会不会被摆上这件工具。
@@ -51,11 +52,32 @@ class ToolSpec:
         ⚠️ 判据是**永久**资格，不是此刻能不能用。店主身份是永久的：
         Emma 走到哪儿都补不了超市的货，让她看见 ``restock`` 只有坏处。
 
-        但"要在店里才能买"这种**临时**门槛绝不能拿来过滤工具——看不见的
-        能力，模型不会为它做计划。它只会在"当下能做什么"里打转，永远不会
-        为了解锁某个能力而先移动。**能力的可见性是规划的前提。**
+        但"要在店里才能买"这种**临时**门槛不归这一层管，见下面那条。
         """
         return self.eligible is None or bool(self.eligible(agent_name))
+
+    def unavailable_reason(self, agent, world):
+        """此刻调它会不会**必被拒**？会的话返回一句人话，否则 None。
+
+        ⚠️ **这不是权限，是省字。**看不见的能力模型不会为它做计划——它只会
+        在"当下能做什么"里打转，永远不会为了解锁某个能力而先移动。
+        **能力的可见性是规划的前提**，这条没变。
+
+        所以被它摘掉的工具**不从模型眼前消失**：完整 schema 不进请求
+        （一件 150–350 tokens），但决策上下文里留一行「buy（要先进店）」
+        （约 11 tokens）。能力还看得见，账省了九成。
+
+        起因是量出来的：一次决策 `prompt_tokens` 中位 4279，而真正的决策
+        上下文只有约 649——**输入的 85% 是工具 schema**，而且每次一模一样。
+
+        ⚠️ 谓词和 handler 里的检查是**同一件事写了两遍**，走散的后果不对称：
+        谓词过严 → 模型看不见一件其实能用的工具（**丢能力**）；
+        谓词过松 → 白给一次拒绝（无害）。
+        所以**拿不准就返回 None**，并且 `test_tool_filter.py` 拿真 handler 对账。
+        """
+        if self.available_now is None:
+            return None
+        return self.available_now(agent, world)
 
     def to_function_schema(self, agent_name=None):
         """转成 OpenAI 兼容接口要的函数声明。

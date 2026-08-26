@@ -291,6 +291,20 @@ SLEEP_PARAMETERS = {
 }
 
 
+def sleep_available(agent, world):
+    """只能在自己家睡。别人家的沙发不算。
+
+    ``move_to`` 和 ``stay`` 故意没有谓词——它们是**本轮唯一的收敛点**，
+    一旦被摘掉这一轮就无论如何都做不出动作了。
+    """
+    from world.snapshot import area_of
+
+    here = area_of((world.agent_locations or {}).get(agent.name) or agent.current_location)
+    if here != agent.home_area:
+        return "you have to be at home to sleep"
+    return None
+
+
 def handle_sleep(agent, args, world=None):
     """睡觉——唯一可以一口气跨越整夜的动作。
 

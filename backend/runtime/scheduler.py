@@ -38,6 +38,7 @@ import agents.state as agent_state
 import observability.trace as trace_module
 import tools as tools_module
 import world.economy as economy_module
+import world.events as events_module
 import world.goals as goals_module
 import world.mailbox as mailbox_module
 import world.weather as weather_module
@@ -50,10 +51,12 @@ from agents.agent import (
     MiaThompson,
     RonParker,
 )
+from llm import LLMClient
 from memory.memory_system import MemorySystem
 from memory.persona_store import persona_store
 from memory.reflection import Reflection
 from runtime.agent_runtime import run_decision_loop
+from runtime.budgets import Budget
 from world.clock import format_clock
 from world.snapshot import snapshot
 
@@ -79,16 +82,23 @@ class Town:
     ``on_decision(event)``   每做完一次决策调一次，用来打日志。
     ``stop_when()``          每批决策后问一次，返回 True 就收工（评估的早停）。
     ``tools_disabled``       摘掉这些工具——消融实验就靠它。
+    ``filter_tools``         此刻用不了的工具不进 schema，改成上下文里一行。
     """
 
     def __init__(self, *, days=1, max_decisions=None, max_steps=None,
-                 tools_disabled=(), deterministic_weather=True, reflect=True,
+                 tools_disabled=(), filter_tools=False, omit_context=(),
+                 deterministic_weather=True, reflect=True,
                  trace_file=None, llm_trace_file=None,
-                 on_decision=None, stop_when=None):
+                 budget=None, on_decision=None, stop_when=None):
         self.days = days
         self.max_decisions = max_decisions
         self.max_steps = max_steps
         self.tools_disabled = frozenset(tools_disabled)
+        self.filter_tools = filter_tools
+        self.omit_context = tuple(omit_context)
+        # 默认带一本账。正常跑碰不到上限——留着是为了跑完能看
+        # **离上限还有多远**：护栏没响不代表设得合适。
+        self.budget = Budget() if budget is None else budget
         self.deterministic_weather = deterministic_weather
         self.reflect = reflect
         self.trace_file = trace_file
@@ -121,6 +131,7 @@ class Town:
                    economy_module.Economy(path=self.sandbox / "economy.json"))
         self._swap(mailbox_module, "mailbox",
                    mailbox_module.Mailbox(path=self.sandbox / "mailboxes.json"))
+        self._swap(events_module, "event_log", events_module.EventLog())
         # persona 换的是对象身上的目录，不是模块上的名字——见模块开头。
         self._swap(persona_store, "persona_dir", self.sandbox / "personas")
 
@@ -201,6 +212,8 @@ class Town:
     def _make_world_provider(self, life_day, minute):
         # 天气先预热，免得把一次网络往返带进锁里。
         weather_module.weather_service.at(life_day, minute)
+        # 事件要盖时间戳，而世界服务不知道现在几点。
+        events_module.event_log.set_clock(life_day, minute)
 
         def with_world(fn):
             with self.lock:
@@ -231,6 +244,9 @@ class Town:
             current_location=agent.current_location,
             last_action=getattr(agent, "_last_action_text", None),
             with_world=self._make_world_provider(life_day, minute),
+            filter_tools=self.filter_tools,
+            omit_context=self.omit_context,
+            budget=self.budget,
             **extra,
         )
         elapsed = time.monotonic() - started
@@ -305,6 +321,11 @@ class Town:
                 decision = results.get(name)
                 next_at[name] = due + (
                     decision["duration_minutes"] if decision else DEFAULT_DURATION)
+
+            # 账户级故障（余额、密钥、权限）不会自己好。继续跑只会把
+            # 剩下的轮次全变成兜底，产出一份看起来像"模型很差"的假数据。
+            if LLMClient.fatal_error:
+                return "llm unavailable"
 
             # 早停：判据一过就收工。省时间，而且"用了几次决策"本身是个指标。
             if self.stop_when and self.stop_when():

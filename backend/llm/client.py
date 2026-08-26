@@ -12,6 +12,15 @@ RETRYABLE_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504, 529}
 MAX_RETRIES = 4
 BASE_BACKOFF_SECONDS = 2
 
+# 账户和配置层面的故障。这些**不会自己好**：密钥不对、余额没了、权限不够，
+# 再打一万次也是一样的答案。
+#
+# 天气那边早就有熔断了，这边一直没有，代价是真金白银：一次评估跑到一半
+# 账户余额见底（HTTP 402），系统又老老实实打了 1927 次注定失败的请求，
+# 空转了将近一小时，还产出了一张三十格全是"模型很差"的记分卡——
+# 而真相是后端没钱了。
+FATAL_STATUS_CODES = {401, 402, 403}
+
 # DeepSeek v4 系列默认开启思考模式，而思考模式会拒绝任何形式的 tool_choice
 # （返回 HTTP 400），本项目的结构化决策恰恰依赖强制函数调用。关掉它同时也
 # 省去了这个场景用不上的推理 token 计费。
@@ -27,10 +36,29 @@ class LLMClient:
     （下一步行动规划）的强制函数调用。
     """
 
+    # 账户级故障是**进程级**的：换个居民、换座小镇、换道题都不会好。
+    # 所以熔断也开在类上，而不是每个实例各记各的——七个居民各持有一个
+    # 客户端，实例级的熔断等于要各自撞一次墙才生效。
+    #
+    # ⚠️ 熔断之后仍然返回 None 而不是抛异常：线上那条路必须保持
+    # "模型不可用就走确定性兜底"，模拟不能卡住。批量跑的那条路
+    # （dry_run / evals）自己去读 ``fatal_error`` 决定要不要停。
+    fatal_error = None
+
+    @classmethod
+    def clear_fatal_error(cls):
+        """测试和"充值之后接着跑"用。"""
+        cls.fatal_error = None
+
     def __init__(self):
         self.api_key = LLM_API_KEY
         self.base_url = f"{LLM_BASE_URL.rstrip('/')}/chat/completions"
         self.model = LLM_MODEL
+        # 上一次调用花了多少 token。预算只能**事后**记账——花了多少要等
+        # 接口回来才知道。
+        # ⚠️ 挂在**实例**上：每个居民各持一个客户端，一次决策只在一个线程
+        # 里跑，所以不会串。挂类上就会被并发的另一个居民覆盖。
+        self.last_usage = {}
 
     def _build_messages(self, agent_name, context, memory=None):
         memory_context = ""
@@ -55,6 +83,20 @@ class LLMClient:
         记录为结构化追踪日志。"""
         payload.setdefault("thinking", THINKING_DISABLED)
         call_kind = "tool" if payload.get("tools") else "text"
+
+        if LLMClient.fatal_error:
+            # 熔断已开：不再白打注定失败的请求。仍然记一条日志，
+            # 否则"这一格为什么全是兜底"在追踪文件里查无对证。
+            log_llm_call({
+                "agent_name": agent_name,
+                "call_kind": call_kind,
+                "model": payload.get("model"),
+                "status": "circuit_open",
+                "error": LLMClient.fatal_error,
+                "attempts": 0,
+                "latency_ms": 0,
+            })
+            return None
 
         if not self.api_key:
             print("LLM_API_KEY is not set. Skipping LLM request.")
@@ -97,6 +139,11 @@ class LLMClient:
                     break
 
                 last_error = f"status {response.status_code}: {response.text}"
+                if response.status_code in FATAL_STATUS_CODES:
+                    LLMClient.fatal_error = last_error
+                    print(f"\n!! LLM 不可用，而且不会自己好：{last_error}")
+                    print("   已拉闸，后续请求不再发出。\n")
+                    break
                 if response.status_code not in RETRYABLE_STATUS_CODES:
                     break
             except requests.RequestException as error:
@@ -132,6 +179,7 @@ class LLMClient:
             "total_tokens": (usage or {}).get("total_tokens"),
             "error": None if status == "success" else last_error,
         })
+        self.last_usage = dict(usage or {})
 
         if status == "failed":
             print(f"LLM request failed after {attempts} attempt(s): {last_error}")

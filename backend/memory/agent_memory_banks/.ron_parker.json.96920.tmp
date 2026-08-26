@@ -1,0 +1,386 @@
+{
+    "agent_name": "Ron Parker",
+    "retention_days": 15,
+    "current_life_day": 1,
+    "memories": [
+        {
+            "content": "Ron Parker: Did 'Greet customers and chat warmly as supermarket opens.' at Supermarket.Customer_eat.",
+            "category": "action",
+            "importance": 4,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-11T14:54:18.362376"
+        },
+        {
+            "content": "Ron Parker: Did 'Walk the aisles and help customers find what they need.' at Supermarket.Customer_eat.",
+            "category": "action",
+            "importance": 4,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-11T15:02:50.161528"
+        },
+        {
+            "content": "Ron Parker: Did 'Stock shelves and tidy up the supermarket floor.' at Supermarket.Entrance_aisle.",
+            "category": "action",
+            "importance": 1,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-11T20:21:18.156076"
+        },
+        {
+            "content": "Ron Parker: Did 'Chat with customers and offer friendly advice near the entrance.' at Supermarket.Customer_eat.",
+            "category": "action",
+            "importance": 2,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-11T21:20:25.677895"
+        },
+        {
+            "content": "Ron Parker: Replied to Arthur Morgan at Supermarket: \"Yeah, I think we should move the displays closer to the entrance.\"",
+            "category": "communication",
+            "importance": 2,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-11T21:20:40.720787"
+        },
+        {
+            "content": "Ron Parker: Did 'chat' at Supermarket.Customer_eat.",
+            "category": "action",
+            "importance": 1,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-11T21:22:50.409967"
+        },
+        {
+            "content": "Ron Parker: Did 'Take a short break and grab a snack in the storage room.' at Supermarket.Storage.",
+            "category": "action",
+            "importance": 1,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-11T21:31:43.119681"
+        },
+        {
+            "content": "Ron Parker: Did 'Check inventory and restock shelves from storage room.' at Supermarket.Fruit_shelf.",
+            "category": "action",
+            "importance": 1,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-11T21:43:04.086322"
+        },
+        {
+            "content": "Ron Parker: Did 'Stroll the checkout area and chat warmly with customers.' at Supermarket.Checkout.",
+            "category": "action",
+            "importance": 2,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-11T21:43:50.502098"
+        },
+        {
+            "content": "Ron Parker: Did 'Head to the fruit shelf and tidy up the display for customers.' at Supermarket.Boss.",
+            "category": "action",
+            "importance": 1,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-11T21:44:17.063184"
+        },
+        {
+            "content": "Ron Parker: Replied to Arthur Morgan at Supermarket: \"Yeah, it'd definitely speed things up during rush hours.\"",
+            "category": "communication",
+            "importance": 2,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-11T21:44:30.356844"
+        },
+        {
+            "content": "Ron Parker: Did 'chat' at Supermarket.Boss.",
+            "category": "action",
+            "importance": 2,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-11T21:44:42.226971"
+        },
+        {
+            "content": "Ron Parker: Did 'Head to checkout and chat warmly with customers as day winds down.' at Supermarket.Boss.",
+            "category": "action",
+            "importance": 2,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-11T22:04:00.590916"
+        },
+        {
+            "content": "Ron Parker: Did 'Start closing up the supermarket and tidy the checkout area.' at Supermarket.Checkout.",
+            "category": "action",
+            "importance": 1,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-11T22:08:19.243076"
+        },
+        {
+            "content": "Ron Parker: Did 'Head home and relax with Ella after a long day.' at Ron_home.Living_room.",
+            "category": "action",
+            "importance": 3,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-11T22:09:47.844280"
+        },
+        {
+            "content": "Ron Parker: Did 'Sit down for a cozy dinner with Ella at home.' at Ron_home.Chair.",
+            "category": "action",
+            "importance": 6,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-11T22:40:25.265841"
+        },
+        {
+            "content": "Ron Parker: Did 'Settle into the sofa and unwind with Ella for the evening.' at Ron_home.Sofa.",
+            "category": "action",
+            "importance": 4,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-12T01:12:48.082636"
+        },
+        {
+            "content": "Ron Parker: Did 'Wind down and drift off to sleep on the sofa with Ella.' at Ron_home.Sofa.",
+            "category": "action",
+            "importance": 4,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-12T01:13:41.722374"
+        },
+        {
+            "content": "Ron Parker: Did 'Snuggle up with Ella and watch some evening TV together.' at Ron_home.Sofa.",
+            "category": "action",
+            "importance": 4,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-12T01:14:47.231018"
+        },
+        {
+            "content": "Ron Parker: Did 'Curl up with Ella and enjoy a quiet evening together on the sofa.' at Ron_home.Sofa.",
+            "category": "action",
+            "importance": 6,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-12T01:19:50.210825"
+        },
+        {
+            "content": "Ron Parker: Did 'Drift off to sleep comfortably on the sofa with Ella.' at Ron_home.Sofa.",
+            "category": "action",
+            "importance": 4,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-12T01:22:47.326604"
+        },
+        {
+            "content": "Ron Parker: Did 'Snuggle up with Ella and drift off to sleep for the night.' at Ron_home.Sofa.",
+            "category": "action",
+            "importance": 4,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-12T01:23:58.724745"
+        },
+        {
+            "content": "Ron Parker: Did 'Snuggle up with Ella and drift off to sleep for the night.' at Ron_home.Sofa.",
+            "category": "action",
+            "importance": 4,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-12T01:25:05.397714"
+        },
+        {
+            "content": "Ron Parker: Did 'Snuggle up with Ella and drift off to sleep for the night.' at Ron_home.Sofa.",
+            "category": "action",
+            "importance": 4,
+            "agent_name": "Ron Parker",
+            "life_day": 1,
+            "timestamp": "2026-06-12T04:31:53.581608"
+        },
+        {
+            "content": "Ron Parker: Self-reflection: Ron Parker is a warm, sociable man who finds genuine satisfaction in both his work and his home life. He spends his days at the supermarket greeting customers, helping them find what they need, and chatting amiably with colleagues like Arthur Morgan about ways to improve the store's efficiency. He takes pride in doing his job well, from restocking shelves to keeping the checkout area running smoothly. At home, his relationship with Ella is clearly the anchor of his life — he cherishes their quiet evenings together on the sofa, sharing dinner and winding down with TV. Ron values simplicity, warmth, and connection above all else.",
+            "category": "reflection",
+            "importance": 10,
+            "agent_name": "Ron Parker",
+            "life_day": 2,
+            "timestamp": "2026-06-12T04:32:16.933487",
+            "level": 1,
+            "base_memories": [
+                {
+                    "content": "Ron Parker: Did 'Curl up with Ella and enjoy a quiet evening together on the sofa.' at Ron_home.Sofa.",
+                    "category": "action",
+                    "importance": 6,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-12T01:19:50.210825"
+                },
+                {
+                    "content": "Ron Parker: Did 'Sit down for a cozy dinner with Ella at home.' at Ron_home.Chair.",
+                    "category": "action",
+                    "importance": 6,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T22:40:25.265841"
+                },
+                {
+                    "content": "Ron Parker: Did 'Head home and relax with Ella after a long day.' at Ron_home.Living_room.",
+                    "category": "action",
+                    "importance": 3,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T22:09:47.844280"
+                },
+                {
+                    "content": "Ron Parker: Did 'Settle into the sofa and unwind with Ella for the evening.' at Ron_home.Sofa.",
+                    "category": "action",
+                    "importance": 4,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-12T01:12:48.082636"
+                },
+                {
+                    "content": "Ron Parker: Did 'Drift off to sleep comfortably on the sofa with Ella.' at Ron_home.Sofa.",
+                    "category": "action",
+                    "importance": 4,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-12T01:22:47.326604"
+                },
+                {
+                    "content": "Ron Parker: Did 'Greet customers and chat warmly as supermarket opens.' at Supermarket.Customer_eat.",
+                    "category": "action",
+                    "importance": 4,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T14:54:18.362376"
+                },
+                {
+                    "content": "Ron Parker: Did 'Snuggle up with Ella and drift off to sleep for the night.' at Ron_home.Sofa.",
+                    "category": "action",
+                    "importance": 4,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-12T04:31:53.581608"
+                },
+                {
+                    "content": "Ron Parker: Did 'Snuggle up with Ella and drift off to sleep for the night.' at Ron_home.Sofa.",
+                    "category": "action",
+                    "importance": 4,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-12T01:25:05.397714"
+                },
+                {
+                    "content": "Ron Parker: Did 'Snuggle up with Ella and drift off to sleep for the night.' at Ron_home.Sofa.",
+                    "category": "action",
+                    "importance": 4,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-12T01:23:58.724745"
+                },
+                {
+                    "content": "Ron Parker: Did 'Snuggle up with Ella and watch some evening TV together.' at Ron_home.Sofa.",
+                    "category": "action",
+                    "importance": 4,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-12T01:14:47.231018"
+                },
+                {
+                    "content": "Ron Parker: Did 'Wind down and drift off to sleep on the sofa with Ella.' at Ron_home.Sofa.",
+                    "category": "action",
+                    "importance": 4,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-12T01:13:41.722374"
+                },
+                {
+                    "content": "Ron Parker: Did 'Walk the aisles and help customers find what they need.' at Supermarket.Customer_eat.",
+                    "category": "action",
+                    "importance": 4,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T15:02:50.161528"
+                },
+                {
+                    "content": "Ron Parker: Did 'Chat with customers and offer friendly advice near the entrance.' at Supermarket.Customer_eat.",
+                    "category": "action",
+                    "importance": 2,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T21:20:25.677895"
+                },
+                {
+                    "content": "Ron Parker: Did 'chat' at Supermarket.Boss.",
+                    "category": "action",
+                    "importance": 2,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T21:44:42.226971"
+                },
+                {
+                    "content": "Ron Parker: Did 'chat' at Supermarket.Customer_eat.",
+                    "category": "action",
+                    "importance": 1,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T21:22:50.409967"
+                },
+                {
+                    "content": "Ron Parker: Did 'Stroll the checkout area and chat warmly with customers.' at Supermarket.Checkout.",
+                    "category": "action",
+                    "importance": 2,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T21:43:50.502098"
+                },
+                {
+                    "content": "Ron Parker: Did 'Head to checkout and chat warmly with customers as day winds down.' at Supermarket.Boss.",
+                    "category": "action",
+                    "importance": 2,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T22:04:00.590916"
+                },
+                {
+                    "content": "Ron Parker: Replied to Arthur Morgan at Supermarket: \"Yeah, it'd definitely speed things up during rush hours.\"",
+                    "category": "communication",
+                    "importance": 2,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T21:44:30.356844"
+                },
+                {
+                    "content": "Ron Parker: Did 'Take a short break and grab a snack in the storage room.' at Supermarket.Storage.",
+                    "category": "action",
+                    "importance": 1,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T21:31:43.119681"
+                },
+                {
+                    "content": "Ron Parker: Did 'Check inventory and restock shelves from storage room.' at Supermarket.Fruit_shelf.",
+                    "category": "action",
+                    "importance": 1,
+                    "agent_name": "Ron Parker",
+                    "life_day": 1,
+                    "timestamp": "2026-06-11T21:43:04.086322"
+                }
+            ]
+        },
+        {
+            "content": "Ron Parker: Did 'Head to the kitchen and make a hearty breakfast to start the day.' at Ron_home.Kitchen.",
+            "category": "action",
+            "importance": 1,
+            "agent_name": "Ron Parker",
+            "life_day": 2,
+            "timestamp": "2026-06-12T14:42:49.387489"
+        },
+        {
+            "content": "Ron Parker: Did 'Make a hearty breakfast to start the day' at Ron_home.Kitchen.",
+            "category": "action",
+            "importance": 2,
+            "agent_name": "Ron Parker",
+            "life_day": 2,
+            "timestamp": "2026-08-26T23:24:39.480570"
+        }
+    ]
+}
