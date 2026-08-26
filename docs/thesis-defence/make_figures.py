@@ -123,9 +123,9 @@ def insect(nf=160, nt=560, seed=11):
     return S
 
 
-def strip(nf=110, nt=1180, seed=3):
+def strip(nf=110, nt=1400, seed=3):
     S = blank(nf, nt, seed)
-    times = pulse_times(55, 235, 0.68, 13.0, 24, nt - 30)
+    times = pulse_times(250, 235, 0.68, 13.0, 24, nt - 30)
     n = len(times)
     for i, t in enumerate(times):
         frac = i / max(n - 1, 1)
@@ -135,6 +135,20 @@ def strip(nf=110, nt=1180, seed=3):
     return S
 
 
+def buzz_lead(nf=160, nt=700, seed=7):
+    """Same buzz, with room at the left for the bat that emits it."""
+    S = blank(nf, nt, seed)
+    times = pulse_times(200, 88, 0.66, 6.5, 16, nt - 20)
+    n = len(times)
+    for i, t in enumerate(times):
+        frac = i / max(n - 1, 1)
+        dur = max(3, int(round(9 - 5 * frac)))
+        sweep(S, t, dur, 0.93 - 0.14 * frac, 0.28 + 0.20 * frac,
+              amp=1.25 - 0.30 * frac, width=2.9)
+    return S
+
+
 print(render(buzz(), f"{OUT}/spec_buzz.png", gain=1.05))
+print(render(buzz_lead(), f"{OUT}/spec_buzz_lead.png", gain=1.05))
 print(render(insect(), f"{OUT}/spec_insect.png", gain=1.05))
 print(render(strip(), f"{OUT}/spec_strip.png", gain=1.0))

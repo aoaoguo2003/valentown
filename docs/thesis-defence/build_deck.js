@@ -108,6 +108,8 @@ const chartFrame = {
 {
   const s = newSlide(true);
   s.addImage({ path: `${B}/spec_strip.png`, x: 0, y: 4.30, w: W, h: 1.45 });
+  s.addImage({ path: `${B}/bat_white_bones.png`, x: 0.62, y: 4.72, w: 1.66, h: 0.375,
+    transparency: 18 });
 
   s.addText("MSc Ecology and Data Science  ·  Dissertation defence", {
     x: 0.9, y: 1.18, w: 11.5, h: 0.3, fontFace: SANS, fontSize: 13, bold: true,
@@ -158,10 +160,12 @@ const chartFrame = {
     "Automated detectors cut that workload — but a detector only ever sees a numerical representation of the sound, and different feature strategies give different answers on the same recordings.",
   ], { x: M, y: 3.80, w: 6.4, h: 2.2, fontSize: 13.5 });
 
-  s.addImage({ path: `${B}/spec_buzz.png`, x: 7.30, y: 3.34, w: 5.41, h: 1.55 });
+  s.addImage({ path: `${B}/spec_buzz_lead.png`, x: 7.30, y: 3.34, w: 5.41, h: 1.24 });
+  s.addImage({ path: `${B}/bat_white.png`, x: 7.52, y: 3.78, w: 1.16, h: 0.262,
+    transparency: 12 });
   s.addText("A feeding buzz: search-phase calls compress into a terminal buzz, then stop. Brief, ultrasonic (recorded at 384 kHz), and evidence of foraging — not just of presence.", {
-    x: 7.30, y: 5.00, w: 5.41, h: 0.9, fontFace: SANS, fontSize: 11.5, italic: true,
-    color: MUTED, isTextBox: true, margin: 0 });
+    x: 7.30, y: 4.70, w: 5.41, h: 0.9, fontFace: SANS, fontSize: 11.5, italic: true,
+    color: MUTED, valign: "top", isTextBox: true, margin: 0 });
 
   foot(s, 2, "Motivation");
   s.addNotes(notes(2));
@@ -322,7 +326,7 @@ const chartFrame = {
   head(s, "Method · the key adaptation", "Making ultrasound legible to a 32 kHz model");
 
   const steps = [
-    ["Source", "384 kHz", "Bat calls sit far above the 16 kHz ceiling of a 32 kHz frontend."],
+    ["Source", "384 kHz", "Bat calls sit far above 16 kHz."],
     ["Resample", "320 kHz", "Unpadded waveform resampled, then cropped or padded to 0.25 s = 80,000 samples."],
     ["Frontend reads", "32 kHz", "Perch interprets those samples at its own assumed rate."],
     ["Result", "×10", "0.25 s is heard as 2.5 s; apparent frequency shifts down tenfold."],
@@ -341,6 +345,10 @@ const chartFrame = {
     s.addText(d, { x: x + 0.18, y: 3.02, w: bw - 0.36, h: 0.92, fontFace: SANS,
       fontSize: 12, color: last ? "C3D2E8" : MUTED, align: "center", lineSpacing: 16,
       valign: "top", isTextBox: true, margin: 0 });
+    if (i === 0) {
+      s.addImage({ path: `${B}/bat_ink_plain.png`, x: x + bw / 2 - 0.58, y: 3.56,
+        w: 1.16, h: 0.262, transparency: 62 });
+    }
     if (!last) {
       s.addShape(pres.ShapeType.rightArrow, { x: x + bw + gap * 0.30, y: 2.84,
         w: gap * 0.40, h: 0.26, fill: { color: TEAL }, line: { type: "none" } });
@@ -577,10 +585,15 @@ const chartFrame = {
     s.addImage({ path: `${B}/${i ? "spec_insect" : "spec_buzz"}.png`, x, y: 2.06, w: pw, h: 1.67 });
     s.addShape(pres.ShapeType.rect, { x, y: 2.06, w: pw, h: 1.67,
       fill: { type: "none" }, line: { color: col, width: 1.25 } });
-    s.addText(t, { x, y: 3.86, w: pw, h: 0.34, fontFace: SANS, fontSize: 15, bold: true,
-      color: col, isTextBox: true, margin: 0 });
-    s.addText(d, { x, y: 4.22, w: pw, h: 0.76, fontFace: SANS, fontSize: 13,
-      color: "C3D2E8", lineSpacing: 18, isTextBox: true, margin: 0 });
+    if (i === 0) {
+      s.addImage({ path: `${B}/bat_amber.png`, x, y: 3.94, w: 1.02, h: 0.23 });
+    } else {
+      s.addImage({ path: `${B}/insect_coral.png`, x, y: 3.80, w: 0.52, h: 0.52 });
+    }
+    s.addText(t, { x: x + (i === 0 ? 1.18 : 0.66), y: 3.86, w: pw - 1.2, h: 0.34,
+      fontFace: SANS, fontSize: 15, bold: true, color: col, isTextBox: true, margin: 0 });
+    s.addText(d, { x, y: 4.30, w: pw, h: 0.76, fontFace: SANS, fontSize: 13,
+      color: "C3D2E8", lineSpacing: 18, valign: "top", isTextBox: true, margin: 0 });
   });
   s.addText("Schematic illustrations of the two patterns", { x: M, y: 1.72, w: CW, h: 0.28,
     fontFace: SANS, fontSize: 11, italic: true, color: "6E819F", isTextBox: true, margin: 0 });
@@ -676,6 +689,10 @@ const chartFrame = {
 {
   const s = newSlide(true);
   s.addImage({ path: `${B}/spec_strip.png`, x: 0, y: 5.10, w: W, h: 1.30 });
+  s.addImage({ path: `${B}/bat_white_bones.png`, x: 0.62, y: 5.50, w: 1.54, h: 0.348,
+    transparency: 20 });
+  s.addImage({ path: `${B}/bat_white.png`, x: 8.86, y: 2.06, w: 3.84, h: 0.867,
+    transparency: 92 });
 
   s.addText("Thank you", { x: 0.9, y: 2.06, w: 11.5, h: 1.0, fontFace: HEAD, fontSize: 52,
     bold: true, color: WHITE, isTextBox: true, margin: 0 });

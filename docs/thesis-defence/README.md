@@ -25,12 +25,29 @@ npm install                 # pptxgenjs
 pip install numpy Pillow    # figure generation
 
 python3 make_figures.py     # schematic spectrogram panels -> build/
+python3 make_bat.py         # bat silhouettes -> build/
+node render_icons.js        # cricket icon (react-icons) -> build/
 node build_deck.js          # -> WPNS1_defence_deck.pptx (notes read from script.json)
 python3 make_script.py      # -> SPEAKER_SCRIPT.md
 ```
 
 To change what is said, edit `script.json` and rerun `build_deck.js` and `make_script.py`.
 
-`build/spec_buzz.png`, `build/spec_insect.png` and `build/spec_strip.png` are **schematic
-illustrations** of the two acoustic patterns discussed in the dissertation, drawn in the
-deck palette. They are drawings, not data from the study, and the deck labels them as such.
+## Artwork
+
+`build/spec_*.png` are **schematic illustrations** of the acoustic patterns discussed in
+the dissertation, drawn in the deck palette. They are drawings, not data from the study,
+and the deck labels them as such.
+
+`make_bat.py` draws the bat silhouette from scratch — a small body, tall ears and the
+scalloped trailing edge where the wing membrane spans the elongated finger bones. Stock
+bat icons are Halloween-styled and read wrong in a viva. The bat appears five times, each
+time carrying meaning rather than decorating:
+
+| Slide | Placement | What it says |
+|-------|-----------|--------------|
+| 1 Title | at the head of the call sequence on the strip | the bat emits the pulses that compress into the terminal buzz |
+| 2 Motivation | in the lead-in of the buzz spectrogram | same, matching the caption beneath it |
+| 6 Time expansion | in the "384 kHz / Source" card | where the bat call enters the pipeline |
+| 11 Buzz vs insect | on the "Buzz-like" label, opposite a cricket on "Insect-like" | labels which panel is which |
+| 14 Thank you | corner mark, plus the strip bat | closing motif |
