@@ -5,28 +5,29 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 
 - 时间：2026 年 8 月 27 日（周四）17:35 – 17:50 (BST)
 - 场次：Parallel Session 3 — Robotics & Autonomous Systems，会场 N2.10
-- 幻灯片：`ICAC2026_Paper108_Valentown.pptx` —— **正式页 11 页 + 备用页 4 页**，图为主、字为辅
+- 幻灯片：`ICAC2026_Paper108_Valentown.pptx` —— **正式页 12 页 + 备用页 3 页**，图为主、字为辅
 - 英文讲稿已放进每页备注栏 / Speaker Notes；页面上只留关键词和示意图，**照着页面念是不够的，按下面的讲稿讲**
 
 ---
 
 ## 一、这一版砍了什么
 
-为了腾出 2 分钟放演示视频，从正式流程里拿掉了三页（约 2 分 05 秒的讲话量）。**它们没有删除，而是移到致谢之后当备用页**，问答时可以直接跳过去：
+为了腾出 2 分钟放演示视频，从正式流程里拿掉了两页（约 1 分 25 秒的讲话量）。**它们没有删除，而是移到致谢之后当备用页**，问答时可以直接跳过去：
 
 | 原来的页 | 原用时 | 现在在哪 | 为什么可以拿掉 |
 |---|---|---|---|
 | Framework（架构图，图 1） | 0:40 | 备用页 **B1** | 视频里就能看到前后端各自在干什么，五个模块的名字对 10 分钟的报告没有价值 |
-| Execution（流程图，图 2） | 0:40 | 备用页 **B2** | 视频演的就是"一个模拟日"，讲完视频再放流程图是重复 |
-| Discussion（优势 / 局限） | 0:45 | 备用页 **B4** | 局限已经压缩成一句话并入结论页；优势在前面几页已经讲过 |
+| Discussion（优势 / 局限） | 0:45 | 备用页 **B3** | 局限已经压成三个词并入结论页；优势在前面几页已经讲过 |
 
-另外原来的实现页（Valentown 静态截图）变成了备用页 **B3**——它同时是**视频放不出来时的兜底**：直接跳过去，照着视频的讲法讲这张图。
+**Execution（流程图，图 2）留在正式流程里，就放在视频前面**——先把"一天怎么跑"讲清楚，再让观众看它跑，视频就成了这页的证据，而不是重复。为了配合，这页的讲稿压到 35 秒，最后一句直接接视频。
+
+另外原来的实现页（Valentown 静态截图）变成了备用页 **B2**——它同时是**视频放不出来时的兜底**：直接跳过去，照着视频的讲法讲这张图。
 
 ---
 
 ## 二、时间分配
 
-正式部分讲话约 **960 词** + 2 分钟视频 ≈ **9 分 25 秒**，15 分钟的时段还能留出 5 分钟提问。
+正式部分讲话约 **1,045 词** + 2 分钟视频 ≈ **10 分 00 秒**，15 分钟的时段还能留出 5 分钟提问。
 
 | # | 页面 | 内容 | 目标用时 | 累计 |
 |---|---|---|---|---|
@@ -35,17 +36,18 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 | 3 | Problem statement | 一个问题、三项要求 | 0:45 | 2:05 |
 | 4 | Mechanism 1 & 2 | 日程驱动 + 时空交互 | 0:55 | 3:00 |
 | 5 | Mechanism 3 | 记忆反馈闭环（**重点**） | 1:00 | 4:00 |
-| 6 | **DEMO** | **运行视频** | **2:00** | **6:00** |
-| 7 | Experiments | 实验设置与关注点 | 0:40 | 6:40 |
-| 8 | Result 1 | 交互消融 | 0:50 | 7:30 |
-| 9 | Result 2 | 记忆随时间演化 | 0:50 | 8:20 |
-| 10 | Conclusion | 结论 + 局限 + 未来工作 | 0:55 | 9:15 |
-| 11 | Thank you | 致谢，进入提问 | 0:10 | 9:25 |
-| B1–B4 | Backup | 架构 / 流程 / 截图 / 优势局限 | — | 问答时用 |
+| 6 | Execution | 一个模拟日的完整流程 | 0:35 | 4:35 |
+| 7 | **DEMO** | **运行视频** | **2:00** | **6:35** |
+| 8 | Experiments | 实验设置与关注点 | 0:40 | 7:15 |
+| 9 | Result 1 | 交互消融 | 0:50 | 8:05 |
+| 10 | Result 2 | 记忆随时间演化 | 0:50 | 8:55 |
+| 11 | Conclusion | 结论 + 局限 + 未来工作 | 0:55 | 9:50 |
+| 12 | Thank you | 致谢，进入提问 | 0:10 | 10:00 |
+| B1–B3 | Backup | 架构 / 截图 / 优势局限 | — | 问答时用 |
 
-**唯一要记的时间锚点：视频必须在 4:00 左右开始、6:00 左右结束。** 视频一结束就还剩 3 分半讲三页结果和结论，节奏是够的。
+**时间锚点：第 5 页讲完 4:00，视频 4:35 开始、6:35 结束。** 视频一结束还剩 3 分半讲三页结果和结论，够用。
 
-**再超时怎么办**：文中标 `[可删]` 的句子共约 70 词，全略可省 30 秒；还不够就把第 7 页（实验设置）压成一句"seven heterogeneous agents, multiple consecutive days"，直接进结果。
+**超时怎么办**：文中标 `[可删]` 的句子共约 70 词，全略可省 30 秒，落到 9:30；还不够就把第 8 页（实验设置）压成一句 "seven heterogeneous agents, multiple consecutive days"，直接进结果。
 
 ---
 
@@ -112,13 +114,27 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 > Two notes. A person can write feedback directly into memory, through the same channel. And the language model itself is stateless — all continuity lives in the memory system.
 
 - 中文要点：左边两排＝**WRITTEN IN**（计划／对话／反思）和 **READ OUT**（规划／对话／反思），中间一行是条目属性；右边图 3 就是这个闭环。再补两点：人可从同一通道注入反馈；LLM 无状态，连续性全在记忆里。
-- 讲法：评审最可能追问这一页，宁可多花 10 秒。指着图讲 "store in / generate" 两个方向。讲完这页应该正好 4:00，直接切视频。
+- 讲法：评审最可能追问这一页，宁可多花 10 秒。指着图讲 "store in / generate" 两个方向。讲完这页应该正好 4:00。
 
-### 6 · DEMO — Valentown, running ★视频页（2:00）
+### 6 · Execution — One simulation day, end to end
+
+> One look at the loop as the system actually runs it.
+>
+> Agents initialise from their profile and their memory. On day one there is nothing to reflect on, so they plan straight from the profile; on every later day they reflect on memory first, and that reflection feeds the planning call.
+>
+> Then: generate the plan, store it, pick the destination, move, and talk if someone else is there — and the conversation goes back into memory. A closed loop.
+>
+> Let me show you that running.
+
+- 中文要点：只强调一个分叉——第一天直接规划，之后先反思再规划；其余步骤沿着流程图用手划一遍即可，**不要逐框念**。
+- 讲法：这页是视频的引子，35 秒就够。最后一句 "Let me show you that running." 说完直接翻页点播放，**中间不要停顿解释**，两页要连成一个动作。
+- 好处：观众带着这张流程图去看视频，画面里发生的每件事都能对上号——视频因此是这页的证据，不是重复。
+
+### 7 · DEMO — Valentown, running ★视频页（2:00）
 
 **开场一句话说完就点播放，然后让画面自己走。**下面这段约 180 词，摊在 2 分钟里讲，中间大方留白——观众正在看画面，不需要你一直说话。
 
-> **[点播放]** Rather than describe the system, let me show it running.
+> **[点播放]** So that is the loop. Here it is running.
 >
 > This is Valentown. The whole town is on one plane: homes along the top, the café, supermarket and pharmacy below, a park on the left. Everything you see was produced by the Python backend — planning, dialogue and reflection, and the only calls to DeepSeek — and the client simply replays it.
 >
@@ -126,9 +142,9 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 >
 > **[约 0:50，两人相遇时]** Here two residents arrive at the same place in the same period — that is the co-location trigger firing. What they say is generated from their context and recent memory, and it goes straight back into memory.
 >
-> **[约 1:30，入夜／反思时]** At the end of the day each agent reflects on what happened, and that reflection is what tomorrow's plan is built on. On day one there is nothing to reflect on, so agents plan straight from their profile.
+> **[约 1:30，入夜／反思时]** And at the end of the day each agent reflects on what happened — the step you just saw in the flow chart — and that reflection is what tomorrow's plan is built on.
 >
-> **[视频结束]** So the schedule, the trigger and the memory loop from the last three slides — this is all of it, running.
+> **[视频结束]** So the schedule, the trigger and the memory loop — everything from the last four slides — this is all of it, running.
 
 - 中文要点：这 2 分钟要让观众亲眼看到前三页讲的三个机制，所以旁白只做**三次指认**：① 自主生成的日程 ② 共处触发对话 ③ 反思影响第二天。页面底部那行小字就是这三个指认，顺序一致。
 - 剪辑建议（视频本身）：
@@ -136,18 +152,18 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
   - 必须拍到的三个镜头：早晨居民从家出发 / 两人在同一地点弹出对话气泡 / 夜里反思与第二天不同的日程。
   - **静音**，或者直接导出无音轨——会场音响多半没接，有声反而出岔子。
   - 关键时刻可以轻微放大（右侧状态面板、对话气泡），远处观众才看得清。
-- 风险预案：视频不放、卡住、格式不认——**不要修**，直接说 "let me show you the same thing as a still" 跳到备用页 **B3**（同一张截图），照上面这段讲。练习时至少完整走一遍这个兜底流程。
+- 风险预案：视频不放、卡住、格式不认——**不要修**，直接说 "let me show you the same thing as a still" 跳到备用页 **B2**（同一张截图，第 14 页），照上面这段讲。练习时至少完整走一遍这个兜底流程。
 
 **怎么把视频放进去（PowerPoint）**
 
-1. 打开第 6 页，那个深色边框里现在放的是一张截图（占位用，也是兜底画面）。
+1. 打开第 7 页，那个深色边框里现在放的是一张截图（占位用，也是兜底画面）。
 2. 菜单 **插入 → 视频 → 此设备**，选你的录屏文件（推荐 MP4 / H.264）。
 3. 把视频拖到与深色边框**完全重合**：点视频 → 格式 → 大小与位置，填 **宽 26.9 cm、高 15.1 cm**，**水平 3.5 cm、垂直 2.2 cm**（相对左上角）。用英寸的话是 10.6 × 5.96 in，位置 1.37 / 0.88 in。截图会被完全盖住。
 4. 选中视频 → **播放** 选项卡：开始设为 **自动**，勾选 **循环播放直到停止**（可选），**不要**勾"全屏播放"。音量设为**静音**。
 5. 用 **文件 → 信息 → 压缩媒体** 压一下，避免文件过大在会场机器上卡顿。
 6. 存成 `.pptx`（不要 `.ppsx`），拷 U 盘时确认视频是**嵌入**而不是链接——重新打开演示一遍确认能播。
 
-### 7 · Experiments — What we ran, and what we looked for
+### 8 · Experiments — What we ran, and what we looked for
 
 > For the experiments we use seven agents: a supermarket owner, a pharmacist, a couple with a seven-year-old, a family teacher and an architect. Their attributes ground everything the model generates. [第二句可删]
 >
@@ -158,7 +174,7 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 - 中文要点：人群异质 → 多个连续虚拟日、每日完整周期 → 「确定性流程 + 随机内容」的取舍 → 三个评估关注点（正好对应后面两页结果）。
 - 讲法：视频刚放完，观众还在回味，这页要**快**，别恋战。
 
-### 8 · Result 1 — Turn interaction off, and the town goes quiet
+### 9 · Result 1 — Turn interaction off, and the town goes quiet
 
 > The first experiment is an ablation on interaction.
 >
@@ -171,7 +187,7 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 - 中文要点：页面上是两条链——绿色那条 `对话 → 记忆 → 第二天的计划 → 更丰富的行为`，灰色那条在第一个箭头上打了叉，链条断掉，结果是重复、孤立、日程不变。因果是关键，不要只念现象。
 - 加分：可以回指视频——"the conversation you just saw is exactly this first box"。
 
-### 9 · Result 2 — Memory changes shape as the days pass
+### 10 · Result 2 — Memory changes shape as the days pass
 
 > The second result is about memory over time.
 >
@@ -182,7 +198,7 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 - 中文要点：左边三根柱子＝记忆构成随时间迁移（绿＝计划与观察，黄＝对话，深色＝反思）；右边两张卡＝记忆内容与行为变化相关。
 - 讲法："Nobody wrote a friendship rule" 是本页记忆点，说完稍停。**柱状图是示意图**，页面下方已标 schematic；被问比例来源就直说这是定性趋势、不是实测比例。措辞用「相关 / 观察到」，不要说成统计显著。
 
-### 10 · Conclusion — Where this leaves us
+### 11 · Conclusion — Where this leaves us
 
 > To conclude. We presented a schedule-driven multi-agent framework in which planning, interaction and reflection are linked through a memory-centred feedback loop. Importance-based memory keeps what mattered, and reflection turns it into insight that guides the next day.
 >
@@ -193,26 +209,27 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 > That sets the agenda: quantitative evaluation first, then scale and real-time reaction, then deeper reasoning — with applications to game NPCs, education and embodied agents.
 
 - 中文要点：结论一句话＝简单的生成式机制足以产生连贯 routine、持久关系与经验驱动的适应；接着**主动认三个局限**（成本、规模、随机性，页面左下就是这三个词）；最后用局限自然引出未来工作三条，把「定量评估」放第一位。
-- 讲法：主动讲局限是这页的重点——评审最想问的就是"没有定量指标"，你先说出来，气场完全不同（原来单独的讨论页现在是备用页 B4，要展开就跳过去）。
+- 讲法：主动讲局限是这页的重点——评审最想问的就是"没有定量指标"，你先说出来，气场完全不同（原来单独的讨论页现在是备用页 B3，要展开就跳过去）。
 
-### 11 · Thank you
+### 12 · Thank you
 
 > Thank you very much for your attention. I am happy to take questions.
 
-- 提问阶段把这一页留在屏幕上（有邮箱和论文标题）。后面还有 4 页备用页，需要时按页码直接跳。
+- 提问阶段把这一页留在屏幕上（有邮箱和论文标题）。后面还有 3 页备用页，需要时按页码直接跳。
 
 ---
 
 ## 四、备用页怎么用
 
-放映时输入页码 + Enter 即可直接跳转（例如按 `1` `2` `Enter` 到 B1）。
+放映时输入页码 + Enter 即可直接跳转（例如按 `1` `3` `Enter` 到 B1）。
 
 | 页码 | 备用页 | 什么时候跳过去 |
 |---|---|---|
-| 12 | **B1 · Framework**（图 1） | 问"系统怎么搭的""前后端怎么分工""换个模型行不行" |
-| 13 | **B2 · Execution**（图 2） | 问"一天具体几步""第一天和之后有什么区别" |
-| 14 | **B3 · Implementation**（截图） | **视频放不出来时的兜底**；或问界面、地点设置 |
-| 15 | **B4 · Discussion**（优势/局限） | 讨论深入到方法论取舍、可复现性、成本时 |
+| 13 | **B1 · Framework**（图 1） | 问"系统怎么搭的""前后端怎么分工""换个模型行不行" |
+| 14 | **B2 · Implementation**（截图） | **视频放不出来时的兜底**；或问界面、地点设置 |
+| 15 | **B3 · Discussion**（优势/局限） | 讨论深入到方法论取舍、可复现性、成本时 |
+
+流程图（图 2）已经回到正式流程第 6 页，不再需要备用页。
 
 ---
 
@@ -268,7 +285,7 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 
 > The model sits behind a single interface, so it is swappable — nothing in the framework depends on the provider. We used DeepSeek for its cost-to-capability ratio at the scale we needed. Comparing models is a reasonable experiment we have not run yet.
 
-- 中文补充：这题可以顺手跳到备用页 **B1**，指着 LLM Interface 讲。
+- 中文补充：这题可以顺手跳到备用页 **B1**（第 13 页），指着 LLM Interface 讲。
 
 **Q11. 人在环反馈会不会让结果不再是「自主涌现」？**
 
@@ -286,13 +303,13 @@ Aoao Guo, Xinyi Tao, Huakang Li, Xuewu Dai
 
 ## 六、临场提示
 
-- **语速**：讲稿按 125–135 词/分钟写。练习时用手机计时，**第 5 页讲完应该在 4:00**，这是新版唯一要盯的中途检查点；视频结束应该在 6:00。
-- **视频前后各留一拍**：点播放前说完那句 "let me show it running" 再点；视频停了先停顿一秒再接第 7 页，不要抢。
+- **语速**：讲稿按 125–135 词/分钟写。练习时用手机计时，**第 5 页讲完 4:00、视频 4:35 开始、6:35 结束**——盯住这三个点就不会崩。
+- **第 6 页和第 7 页要连成一个动作**：说完 "Let me show you that running." 立刻翻页点播放，中间不要解释；视频停了先停顿一秒再接第 8 页，不要抢。
 - **三个必须说清楚的句子**（其他都可临场压缩）：
   1. "deterministic *when*, generative *what*"（第 4 页）
   2. "the language model itself is stateless — all continuity lives in the memory system"（第 5 页）
-  3. "what someone said to you yesterday shows up in what you do today"（第 8 页）
-- **主席举牌提示时间**：直接跳到第 10 页讲结论 + 局限 + 未来工作三条。
+  3. "what someone said to you yesterday shows up in what you do today"（第 9 页）
+- **主席举牌提示时间**：直接跳到第 11 页讲结论 + 局限 + 未来工作三条。
 - **设备**：自带 U 盘（含**嵌入了视频的** pptx）+ 一份 PDF 备份（`ICAC2026_Paper108_Valentown.pdf`，PDF 里没有视频，只有那张截图——所以 PDF 只是最后的兜底）。**提前到场试放一次视频**，这是唯一可能出事的环节。
 - **字体**：Cambria / Calibri，Windows 和 Office 都自带，不会掉字体。
 - **演示者视图**：每页英文讲稿在备注栏里，PowerPoint 里按 `Alt + F5` 可单机预览。
