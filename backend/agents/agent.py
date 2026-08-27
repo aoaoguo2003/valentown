@@ -80,7 +80,7 @@ class Agent:
                                current_location, last_action=None, scratchpad=None,
                                visible_agents=None, unread_letters=0, balance=None,
                                weather=None, tasks="", holdings=None,
-                               hidden_tools=None, wanted_items=(),
+                               hidden_tools=None,
                                recent_events=(), omit_context=()):
         """组装一次决策所需的全部上下文。
 
@@ -109,7 +109,6 @@ class Agent:
             weather=weather,
             tasks=tasks,
             hidden_tools=hidden_tools or [],
-            wanted_items=tuple(wanted_items),
             recent_events=tuple(recent_events),
             omit=frozenset(omit_context),
         ))

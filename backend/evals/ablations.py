@@ -104,6 +104,14 @@ ABLATION_REGISTRY = {
         # 摆着，模型 302 轮里一次都没连起来过。
         handover_windows=False,
     ),
+    "no-town-knowledge": Ablation(
+        name="no-town-knowledge",
+        headline="不告诉他营业时间、容量、谁开哪家店，以及镇上的规矩",
+        # 这一段是**补失忆**，不是给情报：世界一直知道药房六点关门，居民
+        # 却只在撞上关门之后才被告知。整轮评估 `closed` 撞了 377 次，占全部
+        # 驳回的 15%。加了它就得能量出它值多少，否则又是一次"感觉更合理了"。
+        omit_context=("what_this_town_is_like",),
+    ),
     "no-prices": Ablation(
         name="no-prices",
         headline="不告诉他任务里那样东西多少钱",

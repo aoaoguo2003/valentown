@@ -56,7 +56,6 @@ class ContextRequest:
     weather: str = None
     tasks: str = ""
     hidden_tools: list = field(default_factory=list)
-    wanted_items: tuple = ()
     recent_events: tuple = ()
     omit: frozenset = frozenset()
 
@@ -90,6 +89,53 @@ def who_you_have_become(agent, request):
     """每晚反思演化出来的自述，回灌进决策——反思 → persona → 行为的闭环。"""
     persona = persona_store.get(agent.name)
     return f"Your evolving self-reflection: {persona}\n" if persona else ""
+
+
+def what_this_town_is_like(agent, request):
+    """住在这儿的人本来就知道的事：几点开门、坐得下几个、谁开的店、规则是什么。
+
+    这一段补的是**失忆，不是信息不对称**。世界一直知道药房六点关门，居民
+    却只在**撞上关门之后**才被告知——评估里 ``closed`` 撞了 377 次，
+    占全部驳回的 15%，而每一次都是一整轮 LLM 调用换来一句本该是常识的话。
+
+    分界线因此比原来那条更细。原来是「这是关于谁的」；现在是：
+
+        世界的规则，静态、公开、住三天就知道   -> 免费。营业时间、容量、
+                                                谁开哪家店、当面才能交东西
+        别人此刻怎么样，会变、私密             -> 拿不到。他在哪、他有多少钱
+        世界此刻怎么样，会变                   -> 花一步去看。货架上还剩几个、
+                                                此刻还有没有空位
+
+    ⚠️ 关键在**会不会变**：营业时间是常识，库存不是。把库存也塞进来就等于
+    白送一份实时账本，``check_stock`` 和写信打听就都没有意义了。
+
+    ⚠️ 这一段不保证模型会用它。三个"事前告知"的实验全部 0/3——但那三次
+    给的是它**已经知道**的数字（余额、价格），这次补的是它**根本不知道**
+    的事实。是两回事，值得单独量一次。
+    """
+    from world.economy import BENEFIT_AMOUNT, BENEFIT_INTERVAL_DAYS, SHOP_OWNERS
+    from world.snapshot import CUSTOMER_CAPACITY, OPENING_HOURS
+    from world.clock import format_clock
+
+    hours = "; ".join(
+        f"the {area.replace('_', ' ')} {format_clock(start)}–{format_clock(end)}"
+        for area, (start, end) in sorted(OPENING_HOURS.items()))
+    # 只说谁开的店，**不列它卖什么**——明细在 what_things_cost 那一段。
+    # 两段各说一遍是白花 token，而且改一处忘一处就会自相矛盾。
+    owners = "; ".join(f"{who} keeps the {area.replace('_', ' ')}"
+                       for area, who in sorted(SHOP_OWNERS.items()))
+
+    return (
+        f"The town you have lived in for years: {hours}. The park and everyone's "
+        f"homes are open at all hours. Each shop has room for {CUSTOMER_CAPACITY} "
+        f"customers at a time, and {owners}; the Café bar has no keeper.\n"
+        f"Things everyone here grows up knowing: handing something to another "
+        f"person only works when you are both in the same place, but money can be "
+        f"sent to anyone from anywhere. Everyone is paid {BENEFIT_AMOUNT} by the "
+        f"town every {BENEFIT_INTERVAL_DAYS} days and there is no other income "
+        f"unless you keep a shop. Heavy rain, snow and thunderstorms shut the "
+        f"outdoor spots.\n"
+    )
 
 
 def where_you_are(agent, request):
@@ -170,11 +216,11 @@ def what_you_could_do_elsewhere(agent, request):
 
 
 def what_things_cost(agent, request):
-    """在办的任务点名了什么物品，就给那几样的价钱。**不给整张价目表。**
+    """整张价目表。**住在这儿的人知道一杯咖啡多少钱。**
 
     价格和库存是两回事，这条线值得划清楚：
 
-        价格   静态、公开     谁都该知道咖啡多少钱   -> 免费，但只给相关的
+        价格   静态、公开     谁都该知道咖啡多少钱   -> 免费
         库存   会变、要到场   还剩几盒得自己去看     -> 花一步 check_stock
 
     起因是单步用例抓到的：Emma 站在药房里、兜里 3 块、任务是买退烧药，
@@ -185,16 +231,19 @@ def what_things_cost(agent, request):
     分界就在这儿——余额、天气、看得见的人，给的都是事实。替它把差额算好，
     省下的是它本来就会的一步，换来的是再也测不出它会不会算。
 
-    ⚠️ 只给整张表的一小块：34 tokens 的价目表九成时间是噪声，
-    10 tokens 的一行正好落在用得着的那一刻。省的不是钱，是注意力。
+    ⚠️ 曾经只给"任务点名的那几样"，理由是整张表九成时间是噪声。放弃那条的
+    原因是它把**知道价格**变成了**接过任务**的副产品：Arthur 开局就拿着蛋糕、
+    直接约见面、从没调过 ``accept_task``，于是他连蛋糕多少钱都看不到。
+    一个住在这儿的人不会这样。整张表 40 tokens，占一次请求的 1%。
     """
-    if not request.wanted_items:
-        return ""
-    from world.economy import ITEM_SHOP, price_of
+    from world.economy import CATALOG
 
-    lines = [f"{item} costs {price_of(item)} at the {ITEM_SHOP[item]}"
-             for item in request.wanted_items if price_of(item) is not None]
-    return f"What you need: {'; '.join(lines)}.\n" if lines else ""
+    lines = []
+    for shop, entry in sorted(CATALOG.items()):
+        priced = ", ".join(f"{item} {price}"
+                           for item, price in sorted(entry["items"].items()))
+        lines.append(f"at the {shop.replace('_', ' ')} {priced}")
+    return f"What things cost: {'; '.join(lines)}.\n"
 
 
 def what_has_happened_since(agent, request):
@@ -294,6 +343,7 @@ def closing(agent, request):
 SECTIONS = (
     opening,
     who_you_have_become,
+    what_this_town_is_like,
     where_you_are,
     what_is_waiting,
     what_you_have,

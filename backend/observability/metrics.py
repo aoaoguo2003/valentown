@@ -91,6 +91,36 @@ ENVIRONMENT_REASONS = frozenset({
 })
 """③ 参数都对，是此刻的世界不允许。换个时间、换个地点就成了。"""
 
+FORESEEABLE_REASONS = frozenset({
+    "closed",              # 营业时间是常识，进上下文
+    "bad_weather",         # 当前天气免费
+    "insufficient_funds",  # 余额和整张价目表都免费
+    "not_in_shop",         # 自己在哪它当然知道
+    "not_at_home",
+    "not_carrying",        # 背包免费
+    "already_taken",       # 自己接了什么，清单里写着
+    "too_many",            # 同上
+    "time_passed",         # 时间和期限都在眼前
+    "deadline_passed",
+    "not_the_owner",       # 谁开哪家店是常识
+})
+"""**正交的一刀**：同样是"世界说不行"，它当时手上的信息够不够自己判断？
+
+``ENVIRONMENT_REASONS`` 回答"是谁的问题"（不是模型编错参数，是世界不允许）；
+这一组回答一个更难堪的问题——**这次拒绝本来需不需要发生**。
+
+    够判断（在这一组里）   开着的店、当前天气、自己的钱和背包、自己接的活
+    不可能判断（其余）     别人此刻在哪、货架上还剩几个、此刻有没有空位
+
+**这不是环境的功劳，是 agent 的失分。**一个从不被这一类拒绝的 agent，
+才是真的在用它看得见的东西做规划。
+
+⚠️ **这份名单依赖上下文里给了什么。**它假定 ``what_this_town_is_like``
+那一段在场（营业时间、容量、店主）。对**更早的日志**、或者
+``no-town-knowledge`` 那条消融的格子算这个数，会把"我们没告诉它"
+错记成"它没算"——那两种情况下这个比例只能当上限读。
+"""
+
 GIVE_UP_REASONS = frozenset({
     "max_steps_exhausted",   # 想满了步数还没做出动作
     "llm_unavailable",       # 模型压根没应答
@@ -275,6 +305,15 @@ def summarise(records):
             "count": sum(environment.values()),
             "rate": round(sum(environment.values()) / call_count, 4),
             "by_reason": dict(environment.most_common()),
+            # 这些拒绝里，有多少是它手上的信息本来就够判断的——见
+            # FORESEEABLE_REASONS。这一项越低越好，它量的是 agent 不是世界。
+            "foreseeable": sum(count for reason, count in environment.items()
+                               if reason in FORESEEABLE_REASONS),
+            "foreseeable_rate": (
+                round(sum(count for reason, count in environment.items()
+                          if reason in FORESEEABLE_REASONS)
+                      / sum(environment.values()), 4)
+                if environment else None),
         },
         "replanning": {
             "replanned": replanned,
@@ -402,7 +441,11 @@ def format_report(summary, title=""):
     add(f"\n  world said no         {refused['count']:>5}  ({_pct(refused['rate'])} of calls)"
         f"   <- 不是错，是环境在工作")
     for reason, count in refused["by_reason"].items():
-        add(f"    {reason:22s} {count:>5}")
+        mark = "  <- 它本来就该知道" if reason in FORESEEABLE_REASONS else ""
+        add(f"    {reason:22s} {count:>5}{mark}")
+    if refused["count"]:
+        add(f"    {'其中本可避免':20s} {refused['foreseeable']:>5}  "
+            f"({_pct(refused['foreseeable_rate'])})   <- 这一项量的是 agent，越低越好")
 
     replan = summary["replanning"]
     add(f"\n  after being refused   replanned {replan['replanned']}  "

@@ -295,3 +295,17 @@ def test_switching_it_off_is_restored_afterwards():
         assert goals.HANDOVER_WINDOWS is False
 
     assert goals.HANDOVER_WINDOWS is True
+
+
+def test_every_ablated_section_name_really_exists():
+    """⚠️ 段名是**字符串**，打错一个字不会报错——它只是什么都没关掉，
+    然后和基线跑出一样的数字，被读成"这段 context 没用"。
+
+    和 ``_everything_except`` 从真注册表里减工具是同一个道理：
+    **别让手写的名字和代码走散。**
+    """
+    from runtime.context_builder import SECTION_NAMES
+
+    for name, ablation in ABLATION_REGISTRY.items():
+        unknown = set(ablation.omit_context) - SECTION_NAMES
+        assert not unknown, f"{name} 想关的段不存在：{sorted(unknown)}"

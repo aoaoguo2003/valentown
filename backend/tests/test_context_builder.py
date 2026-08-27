@@ -58,7 +58,10 @@ def test_your_own_purse_and_bag_come_free(agent):
 
     assert "7 in your purse" in context
     assert "cake x1" in context
-    assert "milk" not in context, "数量为 0 的东西不该出现"
+    # 只看"你带着什么"那一行：milk 现在也出现在镇上的价目表里，
+    # 扫全文就分不清"背包里有"和"店里有卖"了。
+    carrying = next(line for line in context.splitlines() if "in your purse" in line)
+    assert "milk" not in carrying, "数量为 0 的东西不该出现在背包里"
 
 
 def test_letters_come_as_a_count_never_as_content(agent):
@@ -201,24 +204,28 @@ def test_the_context_still_reads_exactly_as_it_did_before_the_refactor(tmp_path,
 
 # --- 价格：给事实，不给结论 ------------------------------------------------------
 
-def test_the_price_of_what_you_were_asked_to_fetch_comes_free(agent):
+def test_prices_come_free(agent):
     """单步用例抓到的：Emma 站在药房、兜里 3 块、任务是买药，三次都点了 buy。
 
     **她不是不会比大小，是不知道药要 8 块**——余额在上下文里，价格不在。
     """
-    context = build(agent, _request(balance=3, wanted_items=("cold_medicine",)))
+    context = build(agent, _request(balance=3))
 
     assert "3 in your purse" in context
-    assert "cold_medicine costs 8" in context
+    assert "cold_medicine 8" in context
 
 
-def test_only_the_relevant_price_not_the_whole_list(agent):
-    """整张价目表 34 tokens，九成时间是噪声；一行 10 tokens，落在用得着的那一刻。"""
-    context = build(agent, _request(wanted_items=("cold_medicine",)))
+def test_the_whole_price_list_is_there_not_only_what_a_task_named(agent):
+    """**住在这儿的人知道一杯咖啡多少钱。**
 
-    assert "cold_medicine" in context
-    for other in ("coffee", "bread", "vitamins"):
-        assert other not in context
+    曾经只给"任务点名的那几样"，理由是整张表九成时间是噪声。放弃那条是因为
+    它把**知道价格**变成了**接过任务**的副产品：Arthur 开局就拿着蛋糕、直接
+    约见面、从没调过 ``accept_task``，于是他连蛋糕多少钱都看不到。
+    """
+    context = build(agent, _request())
+
+    for item in ("cold_medicine", "coffee", "bread", "vitamins", "cake"):
+        assert item in context, f"{item} 的价格也该是常识"
 
 
 def test_it_gives_the_fact_not_the_verdict(agent):
@@ -227,14 +234,15 @@ def test_it_gives_the_fact_not_the_verdict(agent):
     余额、天气、看得见的人，给的都是**事实**。替它把差额算好，省下的是它
     本来就会的一步，换来的是再也测不出它会不会算。
     """
-    context = build(agent, _request(balance=3, wanted_items=("cold_medicine",)))
+    context = build(agent, _request(balance=3))
 
     for verdict in ("short", "cannot afford", "not enough", "afford"):
         assert verdict not in context.lower()
 
 
-def test_nothing_is_said_when_no_task_names_an_item(agent):
-    assert "What you need" not in build(agent, _request())
+def test_prices_do_not_depend_on_having_a_task(agent):
+    """没有任务也看得到价格——否则"知道多少钱"就成了"接过差事"的副产品。"""
+    assert "What things cost" in build(agent, _request())
 
 
 # --- 按段名消融 ------------------------------------------------------------------
@@ -245,12 +253,11 @@ def test_a_section_can_be_switched_off_by_name(agent):
     做成按段名关、而不是每做一个实验加一个布尔开关——这样**每一段都自动
     成了可测的一维**。
     """
-    on = build(agent, _request(wanted_items=("cold_medicine",)))
-    off = build(agent, _request(wanted_items=("cold_medicine",),
-                                omit=frozenset({"what_things_cost"})))
+    on = build(agent, _request())
+    off = build(agent, _request(omit=frozenset({"what_things_cost"})))
 
-    assert "cold_medicine costs 8" in on
-    assert "cold_medicine costs 8" not in off
+    assert "What things cost" in on
+    assert "What things cost" not in off
     assert len(off) < len(on)
 
 
@@ -287,3 +294,53 @@ def test_things_that_happened_are_told_in_the_second_person(agent):
 
 def test_nothing_is_said_when_nothing_happened(agent):
     assert "Since you last acted" not in build(agent, _request())
+
+
+# --- 住在这儿的人本来就知道的 -------------------------------------------------------
+#
+# 这一段补的是**失忆，不是信息不对称**。世界一直知道药房六点关门，居民却只在
+# 撞上关门之后才被告知——整轮评估 `closed` 撞了 377 次，占全部驳回的 15%。
+
+def test_you_know_when_the_shops_open(agent):
+    context = build(agent, _request())
+
+    assert "Pharmacy 9:00 AM–6:00 PM" in context
+    assert "Supermarket 8:00 AM–9:00 PM" in context
+    assert "Café bar 7:00 AM–10:00 PM" in context
+
+
+def test_you_know_how_many_fit_and_who_keeps_which_shop(agent):
+    context = build(agent, _request())
+
+    assert "room for 3 customers" in context
+    assert "Ella Parker keeps the Pharmacy" in context
+    assert "Ron Parker keeps the Supermarket" in context
+    assert "no keeper" in context, "咖啡馆无人经营，问不到人，这一点得说明"
+
+
+def test_you_know_the_rules_you_could_not_have_worked_out(agent):
+    """镇上没有当面要钱这件事，也没有隔空递东西这件事。**模型无从推断**，
+    以前只能靠撞墙学。"""
+    context = build(agent, _request()).lower()
+
+    assert "same place" in context, "当面才交得了东西"
+    assert "sent to anyone from anywhere" in context, "钱可以隔空转"
+
+
+def test_what_changes_is_still_not_given_away(agent):
+    """⚠️ 关键在**会不会变**。营业时间是常识，库存不是——把库存也塞进来
+    就等于白送一份实时账本，check_stock 和写信打听就都没意义了。"""
+    context = build(agent, _request())
+
+    for leak in ("on the shelf", "in stock", "still has", "remaining"):
+        assert leak not in context.lower()
+
+
+def test_town_knowledge_can_be_ablated_on_its_own(agent):
+    """要证明这 200 个 token 值不值，得能单独把它关掉。"""
+    on = build(agent, _request())
+    off = build(agent, _request(omit=frozenset({"what_this_town_is_like"})))
+
+    assert "9:00 AM–6:00 PM" in on
+    assert "9:00 AM–6:00 PM" not in off
+    assert "What things cost" in off, "关掉常识不该顺带关掉价目表"

@@ -364,3 +364,46 @@ def test_load_no_longer_throws_away_llm_records(tmp_path):
 
 def test_loading_a_file_that_is_not_there_gives_nothing_not_an_error(tmp_path):
     assert metrics.load(tmp_path / "never-written.jsonl") == []
+
+
+# ---------- 本可避免的驳回：量的是 agent，不是世界 ----------
+
+def test_foreseeable_reasons_are_a_subset_of_environment_ones():
+    """这一刀是**正交**的：它切的是 ENVIRONMENT 那一类的内部。
+    漏到别处去（比如把 already_known 算进来）就变成两套分类打架。"""
+    assert metrics.FORESEEABLE_REASONS <= metrics.ENVIRONMENT_REASONS
+
+
+def test_it_counts_the_refusals_the_agent_could_have_predicted():
+    """店几点关门是常识，别人此刻在哪不是。"""
+    records = [
+        _rec("Emma Harris", 0, "move_to", ok=False, reason="closed"),
+        _rec("Emma Harris", 1, "give_item", ok=False, reason="target_absent"),
+        _rec("Emma Harris", 2, "stay"),
+    ]
+
+    refused = metrics.summarise(records)["environment_refusals"]
+
+    assert refused["count"] == 2
+    assert refused["foreseeable"] == 1
+    assert refused["foreseeable_rate"] == 0.5
+
+
+def test_no_refusals_means_no_ratio_not_a_zero():
+    """一次都没被拒的时候，"本可避免率 0%" 会被读成"表现完美"。
+    没有分母就该是 None。"""
+    records = [_rec("Emma Harris", 0, "stay")]
+
+    assert metrics.summarise(records)["environment_refusals"]["foreseeable_rate"] is None
+
+
+def test_the_report_marks_which_ones_it_should_have_known():
+    records = [
+        _rec("Emma Harris", 0, "buy", ok=False, reason="insufficient_funds"),
+        _rec("Emma Harris", 1, "stay"),
+    ]
+
+    text = metrics.format_report(metrics.summarise(records))
+
+    assert "它本来就该知道" in text
+    assert "本可避免" in text

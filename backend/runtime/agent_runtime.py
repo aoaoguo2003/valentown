@@ -118,9 +118,6 @@ def run_decision_loop(agent, *, internal_state, triggers, day_number, time_text,
         # "他做了什么"必须摆在一起，否则只能看到一串孤立的工具调用。
         active = goals.goal_store.active_for(agent.name, day_number)
         trace["goal"] = active[0].describe() if active else None
-        # 任务点名了什么物品，就把那几样的价钱一起给他。**不给整张价目表。**
-        wanted = tuple(dict.fromkeys(
-            goal.what for goal in active if goal.kind == goals.DELIVER))
         # 此刻用不了的工具：schema 不进请求，但下面会以一行的形式进
         # 上下文。摘的是字数，不是能力——看不见的能力不会被规划。
         if filter_tools:
@@ -139,7 +136,6 @@ def run_decision_loop(agent, *, internal_state, triggers, day_number, time_text,
             weather=world.weather_text(),
             tasks=goals.goal_store.summary_for(agent.name, world),
             hidden_tools=hidden,
-            wanted_items=wanted,
             recent_events=recent,
             omit_context=omit_context,
         )
