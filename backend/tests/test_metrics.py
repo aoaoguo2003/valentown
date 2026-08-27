@@ -246,11 +246,19 @@ def test_the_tool_buckets_match_the_real_registry():
     buckets = metrics.TIME_SPENDING | metrics.LOOKUP | metrics.WORLD_CHANGING
     assert set(TOOL_REGISTRY) == buckets
 
+    # ⚠️ ``check_inbox`` 是唯一一件"意图是查、却有副作用"的工具：它把信
+    # 标成已读。``read_only`` 说的是**副作用**，``LOOKUP`` 说的是**意图**
+    # ——这一件上两者分开了。把它算进 WORLD_CHANGING 会让"真正改变世界的
+    # 轮次"这个指标被读信灌水。例外只此一件，写死在这里，好让第二件出现
+    # 时这条测试立刻变红。
+    lookup_with_a_side_effect = {"check_inbox"}
+    assert lookup_with_a_side_effect <= metrics.LOOKUP
+
     for name, spec in TOOL_REGISTRY.items():
-        if spec.terminal:
+        if spec.ends_turn:
             assert name in metrics.TIME_SPENDING, f"{name} 占游戏时间，该归 TIME_SPENDING"
-        elif spec.read_only:
-            assert name in metrics.LOOKUP, f"{name} 是纯查询，该归 LOOKUP"
+        elif spec.read_only or name in lookup_with_a_side_effect:
+            assert name in metrics.LOOKUP, f"{name} 意图是查，该归 LOOKUP"
         else:
             assert name in metrics.WORLD_CHANGING, f"{name} 改变世界，该归 WORLD_CHANGING"
 

@@ -19,7 +19,7 @@
 ``tools``。
 
 决策循环不需要认识任何具体工具，只需要问一句
-``if spec.terminal and result["ok"]: break``。往注册表里加新工具时——
+``if spec.ends_turn and result["ok"]: break``。往注册表里加新工具时——
 新增一个模块、在下面登记一条——``runtime/`` 一行都不用改。
 """
 
@@ -87,7 +87,7 @@ TOOL_REGISTRY = {
         description="Walk somewhere and spend time doing something there. This ends your turn.",
         parameters=MOVE_TO_PARAMETERS,
         handler=handle_move_to,
-        terminal=True,
+        ends_turn=True,
     ),
     "stay": ToolSpec(
         name="stay",
@@ -98,7 +98,7 @@ TOOL_REGISTRY = {
         ),
         parameters=STAY_PARAMETERS,
         handler=handle_stay,
-        terminal=True,
+        ends_turn=True,
     ),
     "sleep": ToolSpec(
         name="sleep",
@@ -108,7 +108,7 @@ TOOL_REGISTRY = {
         ),
         parameters=SLEEP_PARAMETERS,
         handler=handle_sleep,
-        terminal=True,
+        ends_turn=True,
         available_now=sleep_available,
     ),
     "send_mail": ToolSpec(
@@ -120,7 +120,7 @@ TOOL_REGISTRY = {
         ),
         parameters=SEND_MAIL_PARAMETERS,
         handler=handle_send_mail,
-        terminal=False,
+        ends_turn=False,
         max_per_turn=1,
     ),
     "check_inbox": ToolSpec(
@@ -131,8 +131,11 @@ TOOL_REGISTRY = {
         ),
         parameters=CHECK_INBOX_PARAMETERS,
         handler=handle_check_inbox,
-        terminal=False,
-        read_only=True,
+        ends_turn=False,
+        # ⚠️ **不是只读**：它调 mailbox.take_unread()，会把信标成已读。
+        read_only=False,
+        # 也不缓存：别人可以在这一轮的几十秒里给你写信。
+        cacheable_within_turn=False,
         max_per_turn=1,
     ),
     "check_stock": ToolSpec(
@@ -144,8 +147,11 @@ TOOL_REGISTRY = {
         ),
         parameters=CHECK_STOCK_PARAMETERS,
         handler=handle_check_stock,
-        terminal=False,
+        ends_turn=False,
         read_only=True,
+        # 不缓存：并发下另一个居民可能刚把最后一件买走。旧答案会让它
+        # 拿着一个过期的世界继续规划，而且失去改主意的机会。
+        cacheable_within_turn=False,
         max_per_turn=2,
         available_now=check_stock_available,
     ),
@@ -157,7 +163,7 @@ TOOL_REGISTRY = {
         ),
         parameters=BUY_PARAMETERS,
         handler=handle_buy,
-        terminal=False,
+        ends_turn=False,
         max_per_turn=2,
         available_now=buy_available,
     ),
@@ -169,7 +175,7 @@ TOOL_REGISTRY = {
         ),
         parameters=RESTOCK_PARAMETERS,
         handler=handle_restock,
-        terminal=False,
+        ends_turn=False,
         max_per_turn=3,
         available_now=restock_available,
         # 店主身份是永久的，其余五个人一辈子也补不了货——两天真跑里，
@@ -184,7 +190,7 @@ TOOL_REGISTRY = {
         ),
         parameters=TRANSFER_PARAMETERS,
         handler=handle_transfer,
-        terminal=False,
+        ends_turn=False,
         max_per_turn=1,
     ),
     "give_item": ToolSpec(
@@ -196,7 +202,7 @@ TOOL_REGISTRY = {
         ),
         parameters=GIVE_ITEM_PARAMETERS,
         handler=handle_give_item,
-        terminal=False,
+        ends_turn=False,
         max_per_turn=2,
         available_now=give_item_available,
     ),
@@ -209,8 +215,10 @@ TOOL_REGISTRY = {
         ),
         parameters=CHECK_WEATHER_PARAMETERS,
         handler=handle_check_weather,
-        terminal=False,
+        ends_turn=False,
         read_only=True,
+        # 缓存：同一游戏小时的预报是钉死的，再查必然一模一样。
+        cacheable_within_turn=True,
         max_per_turn=1,
     ),
     "accept_task": ToolSpec(
@@ -223,7 +231,7 @@ TOOL_REGISTRY = {
         ),
         parameters=ACCEPT_TASK_PARAMETERS,
         handler=handle_accept_task,
-        terminal=False,
+        ends_turn=False,
         max_per_turn=1,
     ),
     "accept_meeting": ToolSpec(
@@ -237,7 +245,7 @@ TOOL_REGISTRY = {
         ),
         parameters=ACCEPT_MEETING_PARAMETERS,
         handler=handle_accept_meeting,
-        terminal=False,
+        ends_turn=False,
         max_per_turn=1,
     ),
     "recall": ToolSpec(
@@ -249,8 +257,10 @@ TOOL_REGISTRY = {
         ),
         parameters=RECALL_PARAMETERS,
         handler=handle_recall,
-        terminal=False,
+        ends_turn=False,
         read_only=True,
+        # 缓存：记忆在一轮之内不会新增，同一个 query 结果一样。
+        cacheable_within_turn=True,
         max_per_turn=3,
     ),
 }

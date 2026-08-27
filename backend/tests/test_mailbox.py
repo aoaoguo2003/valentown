@@ -180,8 +180,8 @@ def test_check_inbox_on_an_empty_box_is_a_success_not_a_failure(agent, monkeypat
 def test_mail_tools_cost_no_game_time(agent):
     # 改变世界却不占时间，所以不能收敛本轮——否则发完信就得再开一轮
     # 才能决定接下来干什么，白烧一次 LLM 调用。
-    assert get_tool("send_mail").terminal is False
-    assert get_tool("check_inbox").terminal is False
+    assert get_tool("send_mail").ends_turn is False
+    assert get_tool("check_inbox").ends_turn is False
     assert get_tool("send_mail").max_per_turn == 1
 
 

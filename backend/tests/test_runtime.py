@@ -79,7 +79,7 @@ def _run(agent, with_world, triggers=None, time_text="2:00 PM"):
 
 # ---------- 出口 ①：行动类工具成功即收敛 ----------
 
-def test_terminal_tool_success_ends_the_turn(tmp_path, monkeypatch):
+def test_a_time_spending_tool_ends_the_turn(tmp_path, monkeypatch):
     agent = _make_agent(tmp_path)
     _scripted_llm(agent, monkeypatch, [_move("Park.Bench", action="read on the bench")])
 
@@ -427,29 +427,52 @@ def test_letter_content_only_enters_context_through_the_scratchpad(tmp_path, mon
 # ---------- 省步数：真跑两天暴露出来的两处浪费 ----------
 
 def test_repeating_a_query_returns_last_answer_instead_of_asking_again(tmp_path, monkeypatch):
-    # 真跑数据：有几轮五步全花在反复查同一个货架、同一个余额上，
-    # 一个动作都没做出来。纯查询的答案一轮之内不会变。
-    from world.economy import Economy
-    monkeypatch.setattr("world.economy.economy", Economy(path=tmp_path / "e.json"))
-
+    # 真跑数据：有几轮五步全花在反复查同一件事上，一个动作都没做出来。
+    #
+    # ⚠️ 这里用 ``recall`` 而不是 ``check_stock``：判据是
+    # ``cacheable_within_turn``（答案稳不稳），不是 ``read_only``（有没有
+    # 副作用）。记忆一轮之内不会新增，货架会——见下一条。
     agent = _make_agent(tmp_path)
-    agent.current_location = "Supermarket.Checkout"
-    contexts = _scripted_llm(agent, monkeypatch, [
-        {"name": "check_stock", "args": {"thought": "what is on the shelf", "shop": "Supermarket"}},
-        {"name": "check_stock", "args": {"thought": "let me look again", "shop": "Supermarket"}},
+    _scripted_llm(agent, monkeypatch, [
+        {"name": "recall", "args": {"thought": "what do I know", "query": "Adam"}},
+        {"name": "recall", "args": {"thought": "let me think again", "query": "Adam"}},
         _move("Park.Bench"),
     ])
 
-    decision, steps = _run(agent, _world_provider({"Ron Parker": "Supermarket.Checkout"}))
+    decision, steps = _run(agent, _world_provider({"Ron Parker": "Park.Bench"}))
 
     assert steps[0]["ok"] is True
     assert steps[1]["ok"] is False
     assert steps[1]["reason"] == "already_known"
     # 拒绝时把上次的答案还回去——比让它再查一遍省一步，
     # 也比只说"你查过了"有用。
-    assert "bread" in steps[1]["observation"]
     assert "Act on it" in steps[1]["observation"]
     assert decision["destination"] == "Park.Bench"
+
+
+def test_a_shelf_is_read_again_because_someone_else_may_have_emptied_it(tmp_path, monkeypatch):
+    """**没有副作用 ≠ 答案不会变。**
+
+    七个居民并发决策：Emma 第一步查到"还剩 1"，Mia 的线程在这几十秒里把它
+    买走，Emma 第三步再查——旧设计会拿缓存告诉她"还剩 1"。世界本身没错
+    （``buy`` 那把原子锁拦得住超卖），但她被主动告知了一件假事，
+    而且失去了改主意的机会。
+    """
+    from world.economy import Economy
+    monkeypatch.setattr("world.economy.economy", Economy(path=tmp_path / "e.json"))
+
+    agent = _make_agent(tmp_path)
+    agent.current_location = "Supermarket.Checkout"
+    _scripted_llm(agent, monkeypatch, [
+        {"name": "check_stock", "args": {"thought": "look", "shop": "Supermarket"}},
+        {"name": "check_stock", "args": {"thought": "look again", "shop": "Supermarket"}},
+        _move("Park.Bench"),
+    ])
+
+    _, steps = _run(agent, _world_provider({"Ron Parker": "Supermarket.Checkout"}))
+
+    assert steps[1]["ok"] is True, "货架会变，第二次必须真的再看一眼"
+    assert steps[1]["reason"] != "already_known"
 
 
 def test_a_different_query_argument_is_not_blocked(tmp_path, monkeypatch):
@@ -548,8 +571,8 @@ def test_every_step_reaches_both_the_scratchpad_and_the_trace(tmp_path, monkeypa
     agent.current_location = "Supermarket.Checkout"
     _scripted_llm(agent, monkeypatch, [
         {"name": "teleport", "args": {"thought": "worth a try"}},                    # 不存在的工具
-        {"name": "check_stock", "args": {"thought": "look", "shop": "Supermarket"}},  # 正常
-        {"name": "check_stock", "args": {"thought": "again", "shop": "Supermarket"}}, # 重复 -> 被拦
+        {"name": "recall", "args": {"thought": "look", "query": "Adam"}},            # 正常
+        {"name": "recall", "args": {"thought": "again", "query": "Adam"}},           # 重复 -> 被拦
         _move("Park.Bench"),                                                          # 收敛
     ])
 

@@ -279,8 +279,8 @@ def test_sold_out_message_tells_the_model_to_look_elsewhere(tmp_path, monkeypatc
 
 
 def test_shop_tools_cost_no_game_time():
-    assert get_tool("check_stock").terminal is False
-    assert get_tool("buy").terminal is False
+    assert get_tool("check_stock").ends_turn is False
+    assert get_tool("buy").ends_turn is False
 
 
 # ---------- 钱：五件事的原子事务 ----------
@@ -507,8 +507,8 @@ def test_buy_tool_explains_the_shortfall(tmp_path, monkeypatch, store):
 
 
 def test_wallet_tools_cost_no_game_time():
-    assert get_tool("transfer").terminal is False
-    assert get_tool("give_item").terminal is False
+    assert get_tool("transfer").ends_turn is False
+    assert get_tool("give_item").ends_turn is False
 
 
 # ---------- 店主进货：经营决策，不是系统福利 ----------
@@ -650,4 +650,4 @@ def test_partial_restock_says_so(tmp_path, monkeypatch, store):
 
 
 def test_restock_costs_no_game_time():
-    assert get_tool("restock").terminal is False
+    assert get_tool("restock").ends_turn is False

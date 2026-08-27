@@ -205,7 +205,7 @@ def test_tool_tells_you_what_you_are_already_carrying(tmp_path, monkeypatch, sto
 
 
 def test_accept_task_costs_no_game_time():
-    assert get_tool("accept_task").terminal is False
+    assert get_tool("accept_task").ends_turn is False
 
 
 # ---------- give_item：任务的终点 ----------

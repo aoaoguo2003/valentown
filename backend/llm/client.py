@@ -1,4 +1,5 @@
 import json
+import random
 import re
 import time
 
@@ -11,6 +12,13 @@ from observability import log_llm_call
 RETRYABLE_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504, 529}
 MAX_RETRIES = 4
 BASE_BACKOFF_SECONDS = 2
+JITTER_SECONDS = 1.0
+"""退避之上再random 0~1 秒。七个居民同时被限流时，没有抖动它们会
+在同一毫秒一起重试，把同一个尖峰原样复制到下一秒。"""
+
+# 服务端愿意说要等多久的时候，别用我们猜的数盖掉它。上限是防一个
+# 离谱的头把整次跑挂死。
+MAX_HONOURED_RETRY_AFTER = 30
 
 # 账户和配置层面的故障。这些**不会自己好**：密钥不对、余额没了、权限不够，
 # 再打一万次也是一样的答案。
@@ -27,6 +35,25 @@ FATAL_STATUS_CODES = {401, 402, 403}
 # 这属于接口兼容性参数而非业务参数，因此在统一出口注入；调用方仍可通过在
 # payload 中显式传入 thinking 来覆盖。
 THINKING_DISABLED = {"type": "disabled"}
+
+
+def _retry_after_seconds(response):
+    """读 ``Retry-After``。服务端知道要等多久，我们只是在猜。
+
+    只认秒数形式——HTTP 日期形式也合法，但那要处理时钟偏移，而实践中
+    限流返回的几乎都是秒。读不懂就返回 None，退回自己的指数退避：
+    **看不懂的头不该让重试变得更糟。**
+    """
+    raw = (getattr(response, "headers", None) or {}).get("Retry-After")
+    if raw is None:
+        return None
+    try:
+        seconds = float(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    if seconds < 0:
+        return None
+    return min(seconds, MAX_HONOURED_RETRY_AFTER)
 
 
 class LLMClient:
@@ -146,13 +173,24 @@ class LLMClient:
                     break
                 if response.status_code not in RETRYABLE_STATUS_CODES:
                     break
+                # 限流时服务端会直接说要等多久，别用我们自己猜的退避盖掉它。
+                retry_after = _retry_after_seconds(response)
             except requests.RequestException as error:
                 last_error = str(error)
+                retry_after = None            # 连接失败没有响应头可读
 
             if attempt < MAX_RETRIES - 1:
+                # ⚠️ **jitter 不是装饰。**七个居民是同时发请求的，一起被限流
+                # 就会一起退避、一起在同一毫秒重试，把同一个尖峰原样复制到
+                # 下一秒。抖动把它们散开。（weather.py 里同样的理由，那边
+                # 一开始就有，这边漏了。）
                 backoff = BASE_BACKOFF_SECONDS * (2 ** attempt)
-                print(f"LLM request transient failure ({last_error}); retrying in {backoff}s.")
-                time.sleep(backoff)
+                wait = retry_after if retry_after is not None else backoff
+                wait += random.uniform(0, JITTER_SECONDS)
+                source = "Retry-After" if retry_after is not None else "backoff"
+                print(f"LLM request transient failure ({last_error}); "
+                      f"retrying in {wait:.1f}s ({source}).")
+                time.sleep(wait)
 
         latency_ms = int((time.monotonic() - started) * 1000)
 

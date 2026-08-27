@@ -304,7 +304,7 @@ def test_stay_needs_no_destination_parameter():
     move_to = get_tool("move_to")
     assert "destination" not in stay.parameters["properties"]
     assert len(move_to.parameters["properties"]["destination"]["enum"]) > 100
-    assert stay.terminal is True                            # 消耗时间，收敛本轮
+    assert stay.ends_turn is True                            # 消耗时间，收敛本轮
 
 
 # ---------- 工具可见性：只按「永远不可用」筛，不按「此刻不可用」筛 ----------
@@ -432,12 +432,12 @@ def test_sleep_action_text_triggers_the_energy_reset(tmp_path):
 
 
 def test_sleep_ends_the_turn(tmp_path):
-    # 它占用游戏时间，所以必须收敛本轮——而且是三个 terminal 工具之一。
+    # 它占用游戏时间，所以必须收敛本轮——而且是三个 ends_turn 工具之一。
     from tools import TOOL_REGISTRY
 
-    assert get_tool("sleep").terminal is True
-    terminal = sorted(n for n, s in TOOL_REGISTRY.items() if s.terminal)
-    assert terminal == ["move_to", "sleep", "stay"]
+    assert get_tool("sleep").ends_turn is True
+    ends_turn = sorted(n for n, s in TOOL_REGISTRY.items() if s.ends_turn)
+    assert ends_turn == ["move_to", "sleep", "stay"]
 
 
 # ---------- 世界快照必须完整 ----------

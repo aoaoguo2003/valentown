@@ -15,10 +15,11 @@ from llm import LLMClient
 
 
 class _Response:
-    def __init__(self, status_code, payload=None, text=""):
+    def __init__(self, status_code, payload=None, text="", headers=None):
         self.status_code = status_code
         self._payload = payload or {}
         self.text = text
+        self.headers = headers or {}
 
     def json(self):
         return self._payload
@@ -210,3 +211,42 @@ def test_running_out_of_decisions_is_marked_apart_from_really_failing():
 
     assert _mark(timed_out) == " ✗⏱"
     assert _mark(genuinely) == " ✗ "
+
+
+# ---------- 退避：抖动，以及听服务端的 ----------
+
+def test_retry_after_is_honoured_over_our_own_guess():
+    """服务端知道要等多久，我们只是在猜。429 带了头就听它的。"""
+    assert client_module._retry_after_seconds(_Response(429, headers={"Retry-After": "7"})) == 7
+
+
+def test_a_header_we_cannot_read_falls_back_to_backoff():
+    """看不懂的头不该让重试变得更糟——读不动就退回自己的指数退避。"""
+    for raw in ("Wed, 21 Oct 2026 07:28:00 GMT", "soon", "", "-3"):
+        assert client_module._retry_after_seconds(_Response(429, headers={"Retry-After": raw})) is None
+    assert client_module._retry_after_seconds(_Response(429)) is None
+
+
+def test_an_absurd_retry_after_cannot_hang_the_whole_run():
+    """一个 3600 的头会把整次评估挂死。上限截断。"""
+    got = client_module._retry_after_seconds(_Response(429, headers={"Retry-After": "3600"}))
+
+    assert got == client_module.MAX_HONOURED_RETRY_AFTER
+
+
+def test_backoff_is_jittered_so_seven_residents_do_not_retry_in_lockstep(monkeypatch):
+    """⚠️ **jitter 不是装饰。**七个居民同时被限流，没有抖动就会在同一毫秒
+    一起重试，把同一个尖峰原样复制到下一秒。weather.py 里一开始就有，
+    这边漏了。
+    """
+    waits = []
+    monkeypatch.setattr(client_module.time, "sleep", lambda seconds: waits.append(seconds))
+    _count_posts(monkeypatch, lambda n: _Response(500, {}))
+
+    LLMClient().get_response("Ron Parker", "hello")
+
+    assert waits, "临时失败应当重试"
+    assert len(set(waits)) == len(waits), "每次等待都该不一样，否则没有抖动"
+    for wait, attempt in zip(waits, range(len(waits))):
+        floor = client_module.BASE_BACKOFF_SECONDS * (2 ** attempt)
+        assert floor < wait <= floor + client_module.JITTER_SECONDS

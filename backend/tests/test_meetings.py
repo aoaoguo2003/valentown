@@ -189,7 +189,7 @@ def test_meeting_areas_are_places_not_anchors():
 
 
 def test_accept_meeting_costs_no_game_time():
-    assert get_tool("accept_meeting").terminal is False
+    assert get_tool("accept_meeting").ends_turn is False
 
 
 # ---------- 整条链：约定让交付不再靠运气 ----------

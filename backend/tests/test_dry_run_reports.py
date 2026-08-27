@@ -52,11 +52,11 @@ def test_the_two_reports_render_from_real_log_shapes(dry_run, tmp_path):
     """**这条就是那次崩溃。**两份日志形状不同，各自要套对自己的 summarise。"""
     action = _write(tmp_path / "action.jsonl", [
         {"agent_name": "Emma Harris", "life_day": 1, "time_text": "9:20 AM",
-         "trace_id": "t1", "step": 0, "terminal": None, "tool": "buy",
+         "trace_id": "t1", "step": 0, "ends_turn": None, "tool": "buy",
          "summary": "item='cold_medicine'", "ok": False,
          "reason": "insufficient_funds", "observation": "You are 5 short."},
         {"agent_name": "Emma Harris", "life_day": 1, "time_text": "9:20 AM",
-         "trace_id": "t1", "step": 1, "terminal": True, "tool": "stay",
+         "trace_id": "t1", "step": 1, "ends_turn": True, "tool": "stay",
          "summary": "duration_minutes=30", "ok": True, "observation": "You stay."},
     ])
     llm = _write(tmp_path / "llm.jsonl", [

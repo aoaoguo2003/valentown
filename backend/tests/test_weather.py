@@ -346,4 +346,4 @@ def test_forecast_says_when_nothing_is_coming(tmp_path, monkeypatch, no_sleeping
 
 
 def test_check_weather_costs_no_game_time():
-    assert get_tool("check_weather").terminal is False
+    assert get_tool("check_weather").ends_turn is False
