@@ -532,3 +532,42 @@ def test_a_delivered_errand_does_not_reopen_its_window(store):
     store.settle("Emma Harris", done)
 
     assert "right here with you" not in store.summary_for("Emma Harris", done)
+
+
+# ---------- 约定的回滚只能收回自己造的那几条 ----------
+
+def test_proposing_the_same_meeting_again_does_not_destroy_it(store):
+    """**这条是真跑里踩出来的。**
+
+    重复提议同一个约定时，两边都 already_taken、一条都没新建。第一版按
+    "这两个人 + 这个区域 + 这个时刻"模式匹配回滚，于是把**上一次成功约好
+    的那对**一起删了：两个人的上下文里那条约定凭空消失，谁也不知道该去见谁,
+    而且不报错。记分卡上它和"模型没做到"长得一模一样。
+    """
+    assert store.arrange_meeting("Arthur Morgan", "Mia Thompson", "Park",
+                                 15 * 60, 1, "first")["ok"]
+
+    again = store.arrange_meeting("Arthur Morgan", "Mia Thompson", "Park",
+                                  15 * 60, 1, "又说了一遍")
+
+    assert again["ok"] is False and again["reason"] == "already_taken"
+    assert store.meeting_record()["arranged"] == 1, "原来那对必须还在"
+    assert [g.describe() for g in store.active_for("Arthur Morgan", 1)]
+    assert [g.describe() for g in store.active_for("Mia Thompson", 1)]
+
+
+def test_a_meeting_the_other_side_cannot_take_leaves_nothing_behind(store):
+    """回滚本身要照旧管用：一方排不下就一条都不留，**绝不留单边约定**。"""
+    # 把 Mia 的 MEET 名额占满。地点要不一样——重复判定看的是"同一个人 +
+    # 同一个地点"，不看时刻，同地点第二次会被当成重复而不是占名额。
+    for area, hour in (("Park", 9), ("Supermarket", 11)):
+        assert store.arrange_meeting("Mia Thompson", "Adam Harris", area,
+                                     hour * 60, 1, "已有的约")["ok"]
+
+    blocked = store.arrange_meeting("Arthur Morgan", "Mia Thompson", "Cafe_bar",
+                                    15 * 60, 1, "Mia 排不下了")
+
+    assert blocked["ok"] is False and blocked["reason"] == "too_many"
+    assert not [g for g in store.active_for("Arthur Morgan", 1)], \
+        "Arthur 那一半必须收回，否则他会以为约好了"
+    assert len(store.active_for("Mia Thompson", 1)) == 2, "她原有的两个约不该受牵连"

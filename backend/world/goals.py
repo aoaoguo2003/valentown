@@ -170,14 +170,15 @@ class GoalStore:
 
         # 有一方没排上就整体作废，绝不留下单边的约定——
         # 一个人以为约好了、另一个人根本不知道，比没约还糟。
+        #
+        # ⚠️ **只回滚这次调用自己造出来的那几条**，按 seq 认人。第一版是按
+        # "这两个人 + 这个区域 + 这个时刻"模式匹配删的，于是重复提议同一个
+        # 约定时——两边都 already_taken、一条都没新建——它把**上一次成功
+        # 约好的那对**一起删了。两个人的上下文里那条约定凭空消失，谁也不知道
+        # 该去见谁，而且不报错。真跑里踩到过一次，那一格就此走不下去。
+        created = {result["goal"].seq for result in outcomes if result["ok"]}
         with self._lock:
-            self._goals = [
-                goal for goal in self._goals
-                if not (goal.kind == MEET and goal.what == area
-                        and goal.deadline_minute == at_minute
-                        and goal.status == "active"
-                        and {goal.owner, goal.person} == {first, second})
-            ]
+            self._goals = [goal for goal in self._goals if goal.seq not in created]
             self._save()
         failed = next(result for result in outcomes if not result["ok"])
         return {"ok": False, "reason": failed["reason"], "detail": failed}
