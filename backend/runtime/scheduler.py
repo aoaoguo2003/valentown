@@ -370,6 +370,11 @@ class Town:
             reason = self._run_day(life_day)
             if reason in ("decision limit", "goal reached"):
                 break
+            # 最后一天不过夜：反思、发社保、给无主的店补货，改的都是**明天**
+            # 的世界，而明天不存在了。省下七次 LLM 调用。
+            #
+            # ⚠️ 所以 ``days=N`` 给的是 N 天生活、**N-1 次晚间反思**。想拿到
+            # N 次反思样本就得跑 N+1 天——这不是 off-by-one，别去"修"它。
             if life_day < self.days:
                 report = self._end_day(life_day)
                 if on_day_end:
