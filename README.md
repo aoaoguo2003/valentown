@@ -39,7 +39,7 @@ refusal, and keeps going until it commits to something that costs time.
 |---|---|
 | 14 tools, each declaring whether it costs game time, how often it may run, who may see it | the loop counts; it knows about no specific tool |
 | The lock is held twice per decision, for microseconds | 0.25s for seven residents, against 1.43s with the LLM call inside |
-| Buying changes five things under one lock | 31 contested runs, zero oversells |
+| Buying changes five things under one lock | 35 contested runs, zero oversells |
 | Every capability is priced by an ablation | remove one, run the same task, read the drop |
 
 ### Before and after
@@ -52,17 +52,18 @@ replaced rather than against a description of it.
 
 | Task | Now | Before the rebuild |
 |---|---|---|
-| **errand** — read a letter, take the job, borrow money, buy, arrange a meeting, hand it over | **7/7**, median 74 decisions | **0/2**, stalls at stage 1 of 6, ~215 decisions |
-| **rendezvous** — the cake only moves face to face | **6/7**, median 28 decisions | **0/2**, stage 0–1 of 4, ~215 decisions |
-| **scarcity** — one box of medicine, two buyers, no overselling | **7/7**, median 40 decisions | **0/2**, stage 1 of 3, ~248 decisions |
+| **errand** — read a letter, take the job, borrow money, buy, arrange a meeting, hand it over | **2/2**, 64 and 68 decisions | **0/2**, stage 1 of 6, 205–214 decisions |
+| **rendezvous** — the cake only moves face to face | **2/2**, 25 and 27 decisions | **0/2**, stage 1 of 4, 217–220 decisions |
+| **scarcity** — one box of medicine, two buyers, no overselling | **2/2**, 39 and 41 decisions | **0/2**, stage 1 of 3, 236–244 decisions |
 
-The old design never finishes any of them, and burns three to six times the
+The old design finishes none of them, and spends three to nine times the
 decisions failing. It can only walk.
 
-<sub>136 evaluation cells · 6.6 hours · 59M tokens · 0 unusable cells · 0 retries.
-Baseline and `pre-rebuild` come from the same batch on the same commit. The one
-rendezvous failure is traced to a world bug, since fixed — see
-[Honest limits](#honest-limits).</sub>
+<sub>Both columns are one batch on one commit — 12 cells, 45 minutes, 4.8M
+tokens, 0 unusable cells, 0 retries, 0 oversells, and no cell cut off by its
+budget. Earlier batches on an earlier commit ran each baseline seven times
+rather than twice, with the same outcome (7/7, 6/7, 7/7); they are quoted
+separately below and never mixed with these.</sub>
 
 ---
 
@@ -78,7 +79,7 @@ told no never has to plan.
 | **Rain closes outdoor spots** | Real London weather, per game hour. Outdoors is decided per anchor, not per area — a café patio shuts while its indoor tables stay open. |
 | **15 to start, 15 more every third day** | A coffee costs 8. Asking someone to lend you money is not a flourish, it is the only way through. |
 | **Handing something over needs both of you present** | Money can be sent from anywhere. Objects cannot. |
-| **Two buyers, one box** | The shelf is decremented inside the same lock that takes the money, so "check then buy" cannot oversell. Thirty-one contested runs, **zero oversells**, and the winner is not always the same resident. |
+| **Two buyers, one box** | The shelf is decremented inside the same lock that takes the money, so "check then buy" cannot oversell. Thirty-five contested runs, **zero oversells**, and the winner is not always the same resident. |
 
 A refusal never leaks what the agent is not allowed to know:
 
@@ -87,22 +88,62 @@ A refusal never leaks what the agent is not allowed to know:
 ❌  "Emma Harris is at Park."          ← would hand out a global location table
 ```
 
-**Where a refusal points matters more than how often it fires.** Four
-experiments on the same wall — an agent standing in the pharmacy five short of
-the price:
+### Three kinds of no, and only one of them is the model's fault
+
+**It cannot know.** Where someone is right now; whether the last box was bought
+during the thirty seconds it spent thinking. The first is deliberate — hand out
+a global location table and writing to ask becomes pointless. The second is
+atomicity: no amount of reasoning closes the gap between reading a shelf and
+buying from it, only a lock does.
+
+**It should know, and nobody had told it.** What time the pharmacy shuts. That
+was never information asymmetry, it was amnesia: the world knew, and the
+resident found out by walking into a locked door. Opening hours, capacity, who
+keeps which shop and the full price list are now standing knowledge, the way
+they would be for anyone who has lived here a while.
+
+**It knows, and looks straight past it.** You are five short. The balance and
+the price are both on screen, one line apart.
+
+### The measured finding
 
 | Attempt | Where it spoke | Result |
 |---|---|---|
 | Put prices in the context | before buying | 0/3 |
 | Tell the tool description to check the wallet | before buying | 0/3 |
 | Require a `cost` field so the model writes the number down | before buying | 0/3 |
+| Put the opening hours in the context | before setting off | no measurable change |
 | **Name the way out in the refusal itself** | **at the moment of failure** | **0/14 → 3/3** |
 
-The three failures all tried to warn in advance. The model reads right past
-them — its own reasoning at the time is just *"Adam has a fever and needs cold
-medicine."* Under a goal, constraints go invisible. The wording that worked
-offers a fork rather than an answer, and states the one thing the model cannot
-infer — that nobody in this town can hand you cash in person.
+Four attempts to warn in advance, four failures. One attempt at the moment of
+failure, and the case goes from never solved to always solved.
+
+But "under a goal, constraints go invisible" is too loose, because the model
+does respect some of them. Across 11,812 turns:
+
+```
+give_item without the item in your bag      0.02 refusals per 100 turns
+buy without the money                       0.44
+move_to a shop that is shut                 3.59
+```
+
+All three facts sit in the same context. What separates them is what the *next
+call* needs:
+
+> The model reads the part of the context an argument depends on, and skips the
+> part that could only tell it to stop. `give_item` must name something you are
+> carrying, so it reads the bag. `buy` needs the item's name and nothing else —
+> the price and the balance are load-bearing for the *decision*, not for the
+> *call*, and they go unread.
+
+That predicts where a refusal will land better than any appeal to attention, and
+it explains why speaking at the moment of failure works: right then the
+constraint *is* load-bearing, because the next call has to be built around it.
+
+<sub>`closed` overstates the case a little: the world has no notion of travel
+time, so "set off now and arrive when it opens" is refused rather than modelled.
+The resident could still wait and then walk, so the gap is real — just smaller
+than 180×.</sub>
 
 ---
 
@@ -110,6 +151,11 @@ infer — that nobody in this town can hand you cash in person.
 
 A baseline that scores well proves nothing; the task may simply be easy. Each
 capability is removed on its own and the same task is run again.
+
+<sub>This matrix ran on an earlier commit, before opening hours and prices
+became standing knowledge — 88 cells over 6.6 hours. The capabilities it prices
+are untouched by that change, but the numbers are not interchangeable with the
+headline above, so they are kept apart.</sub>
 
 |  | errand | rendezvous | scarcity |
 |---|---|---|---|
@@ -143,7 +189,7 @@ So the loop is not a general intelligence upgrade. **It buys exactly one thing:
 the ability to replan without spending game time**, and it only shows up where
 the task demands that.
 
-Measured across 10,212 turns of the three seeded tasks: **1,640 refusals, and
+Measured across 11,812 turns of the three seeded tasks: **1,780 refusals, and
 after a refusal the agent chooses differently 100% of the time** (median across
 cells). The world argues back and the agent listens.
 
@@ -207,8 +253,16 @@ from any log, for free.
 ## Honest limits
 
 **The model assumes people are where they ought to be.** `target_absent` is the
-single most common refusal — 907 across the evaluation. It walks over to check
-instead of writing to ask. A single-step probe reproduces it 3/3.
+single most common refusal — 977 across every batch, 8.3 per 100 turns. It walks
+over to check instead of writing to ask. A single-step probe reproduces it 3/3.
+
+**Giving residents their town's opening hours did not reduce refusals.** It was
+the right thing to do on principle — a neighbour knows when the pharmacy shuts —
+and it closed a real gap, since a resident who never accepted a task could not
+previously see what anything cost. But measured against the batch before it,
+`closed` fell on one task and rose on another, and the total did not move. It
+is kept, and counted as the fourth failed attempt to warn in advance rather
+than as an improvement.
 
 **It does not check whether it can afford something before buying.** The four
 experiments above fixed this at the moment of refusal, which rescues multi-step
@@ -225,10 +279,11 @@ against the change**, and it is written here rather than in the highlights.
 
 **One evaluation bug survived into a run.** Re-proposing a meeting that already
 existed deleted it for both parties — the rollback matched on pair, place and
-time rather than on what the call had just created. It hit exactly one cell out
-of 136, which happens to be the only rendezvous baseline failure above, and it
-looked on the scorecard exactly like the model giving up. Fixed, with tests on
-both halves of the rule.
+time rather than on what the call had just created. Across every cell run before
+the fix it landed exactly once — and that once was the single rendezvous
+baseline failure in the earlier batch quoted above, where it read on the
+scorecard exactly like the model giving up. Fixed, with tests on both halves of
+the rule.
 
 ---
 
