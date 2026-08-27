@@ -6,6 +6,8 @@
 
 [English](README.md) · 简体中文
 
+[![tests](https://github.com/aoaoguo2003/valentown/actions/workflows/tests.yml/badge.svg)](https://github.com/aoaoguo2003/valentown/actions/workflows/tests.yml)
+
 ![Valentown 截图](docs/screenshot.png)
 
 </div>
@@ -255,7 +257,7 @@ node scripts/smoke_24h.js         # 作息 + 路径冒烟测试，在仓库根�
 ```bash
 cd backend
 pip install -r requirements-dev.txt
-python -m pytest tests/ -q                              # 463 个测试，无 LLM、无真实网络
+python -m pytest tests/ -q                              # 483 个测试，无 LLM、无真实网络
 python -m observability.metrics logs/<某份日志>.jsonl     # 行为 + 成本，离线，免费
 
 python ../scripts/dry_run.py --days 2 --scenario errand # 真实驱动整座小镇（花钱）

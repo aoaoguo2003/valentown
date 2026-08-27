@@ -6,6 +6,8 @@
 
 English · [简体中文](README.zh-CN.md)
 
+[![tests](https://github.com/aoaoguo2003/valentown/actions/workflows/tests.yml/badge.svg)](https://github.com/aoaoguo2003/valentown/actions/workflows/tests.yml)
+
 ![Valentown screenshot](docs/screenshot.png)
 
 </div>
@@ -14,22 +16,31 @@ English · [简体中文](README.zh-CN.md)
 
 ## What this is
 
-Seven residents live in a shared town. They wake on their own rhythms, walk to the
-café and the pharmacy, write letters, lend each other money, agree to meet, and
-hand things over face to face.
+A **domain-specific closed-loop agent runtime** for a persistent multi-agent
+simulation. Unlike a chat agent, every turn must eventually commit to an action
+that advances the world clock — so the loop has a hard convergence condition,
+and a wrong turn costs game time rather than a retry.
 
-The interesting part is not that an LLM drives them. It is that **the world can
-refuse**, and that every design decision behind that world has been measured.
-
-An agent picks a tool. The world checks it against its own rules — the shop is
-closed, the person you want is not here, you are five short — and answers. The
-agent replans against the refusal. That loop runs until the agent commits to
-something that costs game time.
+Seven residents share a town: they write letters, lend each other money, agree
+to meet, and hand things over face to face. The interesting part is not that an
+LLM drives them. It is that **the world is allowed to refuse**, and that every
+design decision behind that world has been measured.
 
 ```
 State → LLM → tool call → world → observation → LLM → … → action
                             └── may refuse, with a reason ──┘
 ```
+
+An agent picks a tool. The world checks it — the shop is closed, the person is
+not here, you are five short — and answers. The agent replans against the
+refusal, and keeps going until it commits to something that costs time.
+
+| Decision | What it buys |
+|---|---|
+| 14 tools, each declaring whether it costs game time, how often it may run, who may see it | the loop counts; it knows about no specific tool |
+| The lock is held twice per decision, for microseconds | 0.25s for seven residents, against 1.43s with the LLM call inside |
+| Buying changes five things under one lock | 31 contested runs, zero oversells |
+| Every capability is priced by an ablation | remove one, run the same task, read the drop |
 
 ### Before and after
 
@@ -287,7 +298,7 @@ node scripts/smoke_24h.js         # schedule + route smoke test, from the repo r
 ```bash
 cd backend
 pip install -r requirements-dev.txt
-python -m pytest tests/ -q                              # 463 tests, no LLM, no network
+python -m pytest tests/ -q                              # 483 tests, no LLM, no network
 python -m observability.metrics logs/<a-trace>.jsonl    # behaviour + cost, offline, free
 
 python ../scripts/dry_run.py --days 2 --scenario errand # drive the whole town (costs money)
