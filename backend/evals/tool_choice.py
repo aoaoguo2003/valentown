@@ -269,12 +269,14 @@ def main(argv=None):
     import json
     import os
     import sys
-    from datetime import datetime
-    from pathlib import Path
+
+    from evals.run_dir import make_run_dir, write_manifest
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--repeats", type=int, default=3,
                         help="每条跑几次。模型有温度，一次说明不了什么")
+    parser.add_argument("--note", default=None,
+                        help="给这次跑起个名字，进目录名：toolchoice_v4_修了递交")
     args = parser.parse_args(argv)
 
     if hasattr(sys.stdout, "reconfigure"):
@@ -286,10 +288,14 @@ def main(argv=None):
         print("No LLM_API_KEY — set it in backend/.env first.")
         return 1
 
-    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    out_dir = Path(__file__).resolve().parent.parent / "logs" / f"toolchoice_{stamp}"
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = make_run_dir("toolchoice", args.note)
     os.environ.setdefault("LLM_TRACE_FILE", str(out_dir / "llm.jsonl"))
+    manifest = write_manifest(
+        out_dir, ["python", "-m", "evals.tool_choice", *(argv or sys.argv[1:])],
+        model=LLM_MODEL, cases=[c.name for c in ALL_CASES], repeats=args.repeats,
+    )
+    print(f"日志：{out_dir}   commit {manifest['commit']}"
+          f"{'（工作区有未提交改动）' if manifest['dirty'] else ''}")
 
     print(f"model: {LLM_MODEL}   {len(ALL_CASES)} 条 x {args.repeats} 次 "
           f"= {len(ALL_CASES) * args.repeats} 次调用")

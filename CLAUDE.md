@@ -464,14 +464,29 @@ python -m evals.runner --scenario all --ablate all --repeats 2  # 整张记分�
 
 ```bash
 cd backend
-python -m evals.runner --scenario errand --ablate none,pre-rebuild --repeats 2
-python -m evals.runner --scenario all --ablate all --repeats 2     # 全矩阵，约 5.5 小时
-python -m evals.tool_choice --repeats 3                            # 单步题，两分钟
+python -m evals.runner --scenario errand --ablate none,pre-rebuild --repeats 2 --note 头条
+python -m evals.runner --scenario all --ablate all --repeats 2 --note 全矩阵   # 约 6 小时
+python -m evals.tool_choice --repeats 3 --note 基线                 # 单步题，两分钟
 python -m observability.metrics logs/<某个>.jsonl                   # 离线算指标，免费
 ```
 
-每跑完一格立刻落盘到 `logs/eval_*/rows.jsonl`——中途 Ctrl-C 不会把已经花掉的
+每跑完一格立刻落盘到 `logs/eval_v*/rows.jsonl`——中途 Ctrl-C 不会把已经花掉的
 钱扔掉。撞到账户级故障（401/402/403）会自动中止整张表。
+
+### 版本号：v1、v2、v3……新的数字更大
+
+```
+logs/eval_v10_修了递交/       ← --note 的内容跟在号后面，可选
+logs/toolchoice_v7_修了递交/
+```
+
+编号由 `evals/run_dir.py` 自动取「现有最大值 + 1」，**只看名字不看修改时间**
+——目录会被复制、备份、同步，时间靠不住，名字靠得住。看错了会覆盖旧结果。
+
+⚠️ **版本号只有配上「跑的是哪个 commit」才有意义**，否则它只是个流水号：
+v7 和 v8 结果不同，中间改了什么无从查起。所以每个目录里落一份 `run.json`，
+记命令、commit、分支，以及**工作区脏不脏**——脏的时候那个 commit 号并不能
+唯一确定代码，这一点必须写在脸上，不能让人事后误以为两次可比。
 
 ### 两类题，问的不是同一件事
 
@@ -486,7 +501,7 @@ evals/tool_choice.py  跑一步，  看**选择**   —— 这个处境它第一
 
 ```
 errand      6 环   300 次决策   跑腿：读信→接任务→借钱→买→约见面→当面交付
-rendezvous  4 环   150 次决策   非见面不可：东西只能当面交
+rendezvous  4 环   300 次决策   非见面不可：东西只能当面交
 scarcity    3 环   120 次决策   只剩一盒药两个人抢：不能超卖
 natural     控制组  40 次决策   什么都不埋
 ```
@@ -494,7 +509,7 @@ natural     控制组  40 次决策   什么都不埋
 预算给得宽是**故意的**：一天到天黑自然结束（约 120-150 次决策），早停又兜着，
 所以富余的预算不会真花掉。给紧了会**伪造失败**（见下面第三个坑）。
 
-### 十种消融
+### 十一种消融
 
 ```
 none                  基线
@@ -502,8 +517,13 @@ pre-rebuild           单步 + 只有 move_to —— **真正的改造前**
 single-step           单步但十四件工具可选 —— 不是改造前，见 evals/ablations.py
 no-outgoing-mail / no-meetings / no-recall / no-tasks     各摘一件工具
 no-prices / no-events                                     各关一段 context
+no-handover-window    人在眼前时不提醒他交得出去 —— 摘的是**三行字**，
+                      `give_item` 照样在。见"时机的另一半"那节
 state-filtered-tools  此刻用不了的工具不进 schema
 ```
+
+⚠️ 加了新旋钮要同时登记进 `test_evals.py` 的 `knobs`，否则一条"什么都没
+关掉"的消融会安静地和基线跑出同样的数字，被读成"这个能力没用"。
 
 ### ⚠️ 评估设计踩过的三个坑（都已修，别再踩回去）
 
@@ -654,6 +674,55 @@ and ask them to send you the money — nobody can hand you cash in person.
 ⚠️ 这条经验**不能推广成"多写提示"**。三个失败的实验恰恰证明了：写在
 schema 里、写在描述里、写成必填字段，都不管用。有效的是**时机**——
 失败刚发生、模型正要重新规划的那一刻。
+
+## 时机的另一半：机会窗口
+
+上面那条讲的是**撞墙**的那一刻。还有一个对称的时刻：**窗口刚打开**的那一刻。
+
+rendezvous 两次真跑，Arthur 和 Mia 都碰上了面，蛋糕**两次都留在他手里**——
+`give_item` 在 302 轮里**一次都没调过**（不是调了被拒，是压根没想到）。
+其中一次 151 轮里走了 **150 轮**。
+
+诊断不是"它不会用这个工具"，是**三条信息在上下文里分三段摆着**：
+
+```
+People you can see from here: Mia Thompson.              ← 一段
+You have 8 in your purse and are carrying cake x1.       ← 另一段
+- meet Mia Thompson at Park at 3:00 PM [already satisfied] ← 第三段
+```
+
+三条都在，模型没连起来。所以在窗口打开的那一刻拼成一句顶到最前
+（`world/goals.py` 的 `summary_for`），和临近约会的置顶行同级：
+
+```
+You are with Mia Thompson right now. Handing something over only works
+face to face — if there is anything you meant to give them, it has to
+happen before either of you moves on.
+```
+
+同样只说**世界规则**（只能当面）和**那个会消失的事实**，不点工具名、
+不说"去递"。这也把 `due_now` 那条时间线补完整了——原本说到"你三点要去
+见谁"就断了，而**碰上的那一刻**才是窗口真正打开。
+
+### ⚠️ 修得对，不等于修的那条路上有人走
+
+第一版只挂在 **DELIVER 任务**上。单步用例 `person_is_right_here` 立刻从
+0/4 变 6/6，看起来成了。于是拿 rendezvous 去验——**那行字在一整次跑里
+出现 0 次**。
+
+因为 Arthur 开局就拿着蛋糕、信里问的是"约个时间地点"，他直接
+`accept_meeting`，**从没调过 `accept_task`**。这道题走的是 MEET 那条路，
+而我只接了 DELIVER 那条。
+
+那一跑还 1 PASS 1 FAIL，**差点被读成"修好了一半"**——真实情况是这两格
+和改动完全无关，只是两个新的基线样本。
+
+留下两条规矩：
+
+- **先验那行字出现了没有，再看通没通关。**一次 `grep "right here with you"
+  logs/eval_v*/**.jsonl` 就能戳破，比看记分卡快、比看记分卡准
+- **测量口径要覆盖真实路径。**单步用例是自己摆的处境，它证明"给了提示模型
+  会用"，不证明"真跑里这个提示会出现"。两者之间隔着一整条行为路径
 
 ## 工作约定
 

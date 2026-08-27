@@ -49,6 +49,10 @@ MAX_ACTIVE = 2
 # 约定之前要留出的余量。到点才醒来是来不及的——还得走过去。
 COMMITMENT_BUFFER_MINUTES = 15
 
+# 机会窗口那几行要不要出现。只为消融存在：默认开着，`no-handover-window`
+# 把它关掉，好在同一张记分卡上量出这几行字到底值多少。
+HANDOVER_WINDOWS = True
+
 DELIVER = "deliver"
 ARRIVE = "arrive"
 MEET = "meet"
@@ -241,13 +245,16 @@ class GoalStore:
         任务**免费**进上下文，和未读信数量、余额、当前天气同级——真跑的
         数据已经证明，不进上下文的东西模型就会忘。
         """
-        goals = self.active_for(owner, world.life_day)
-        if not goals:
-            return ""
         from world.clock import format_clock
 
+        # 窗口先算，而且**不依赖任务还在不在办**——见 handover_windows。
+        windows = self.handover_windows(owner, world)
+        goals = self.active_for(owner, world.life_day)
+        if not goals:
+            return "".join(f"{line}\n" for line in windows)
+
         lines = []
-        due_now = []
+        due_now = list(windows)
         for goal in goals:
             state = "already satisfied" if goal.is_met(world) else "not done yet"
             left = goal.deadline_minute - world.time_minutes
@@ -264,6 +271,83 @@ class GoalStore:
                 )
         head = "".join(f"{line}\n" for line in due_now)
         return head + "You have taken on:\n" + "\n".join(lines) + "\n"
+
+    def handover_windows(self, owner, world):
+        """此刻**当着面**才做得成的事，一人一行，顶在最前面。
+
+        转瞬即逝的机会和临近的约定是同一类东西：错过就得重新找人。上下文里
+        本来就有这三条，只是分三段摆着——能看见谁、身上带着什么、欠谁一件
+        东西——两次真跑证明模型不会自己把它们连起来（302 轮里 ``give_item``
+        零调用，其中一次 151 轮走了 150 轮）。
+
+        ⚠️ **不能只看"还在办的"任务。**决策循环每一步都是先 ``settle`` 再
+        组装上下文，而 MEET 任务在两人到齐的那一刻就被判 ``done``——也就是说
+        **窗口打开的那一刻，正是这条任务从眼前撤下的那一刻**。第一版挂在
+        ``active_for`` 上，实测那行字在两整次真跑里出现 **0 次**：条件全都
+        满足，只是永远晚了一步。
+
+        所以这里扫的是"今天有过的"（active 或 done），不是"还没办完的"。
+        ``failed`` 不算——过期的约定不该再催。
+        """
+        if not HANDOVER_WINDOWS:          # 消融用，见模块顶上的开关
+            return []
+        with self._lock:
+            today = [g for g in self._goals
+                     if g.owner == owner and g.life_day == world.life_day
+                     and g.status in ("active", "done")]
+
+        windows, named = [], set()
+        # 先扫 DELIVER：它点得出具体物品，比泛泛一句"有没有要给的"强。
+        for goal in today:
+            if goal.kind != DELIVER or goal.is_met(world):
+                continue
+            if self._can_hand_over_now(owner, goal, world):
+                named.add(goal.person)
+                windows.append(
+                    f"{goal.person} is right here with you, and you are carrying "
+                    f"the {goal.what} they are waiting for. Handing something over "
+                    f"only works face to face — this window closes the moment "
+                    f"either of you walks away.")
+        # 再扫 MEET：约见面是通向"当面交"的**另一条路**，而且是更常走的那条
+        # ——rendezvous 里 Arthur 开局就拿着蛋糕，直接 accept_meeting，
+        # 从没调过 accept_task。只接 DELIVER 那条，这道题上整段是死的。
+        for goal in today:
+            if goal.kind != MEET or goal.person in named:
+                continue
+            if self._is_here(owner, goal.person, world) \
+                    and self._carrying_anything(owner, world):
+                named.add(goal.person)
+                windows.append(
+                    f"You are with {goal.person} right now. Handing something over "
+                    f"only works face to face — if there is anything you meant to "
+                    f"give them, it has to happen before either of you moves on.")
+        return windows
+
+    def _is_here(self, owner, person, world):
+        """那个人此刻和我在同一区域吗。
+
+        ⚠️ 这是**唯一**一处会拿别人位置做判断的地方，所以它只回答是非，
+        绝不把位置说出去：两人同区域时才为真，而同区域的人本来就在
+        ``visible_agents`` 里看得见。不同区域时上面一个字都不说——
+        泄露了远处的人在哪，写信打听就没有存在意义了。
+        """
+        from world.snapshot import area_of
+
+        if person == owner:
+            return False
+        locations = world.agent_locations or {}
+        return area_of(locations.get(owner)) == area_of(locations.get(person))
+
+    def _carrying_anything(self, owner, world):
+        """身上有东西才提"交给对方"。两手空空时那句话是纯噪音。"""
+        return any(count > 0
+                   for count in ((world.holdings or {}).get(owner) or {}).values())
+
+    def _can_hand_over_now(self, owner, goal, world):
+        """东西在手上，收件人就站在同一区域——此刻交得出去。"""
+        if not self._is_here(owner, goal.person, world):
+            return False
+        return int(((world.holdings or {}).get(owner) or {}).get(goal.what, 0)) > 0
 
     def stats(self):
         from collections import Counter

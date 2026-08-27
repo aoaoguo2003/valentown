@@ -18,17 +18,17 @@ import json
 import os
 import sys
 import time
-from datetime import datetime
 from pathlib import Path
 
 BACKEND = Path(__file__).resolve().parent.parent
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
 
-# 每一格的 LLM 追踪都单独存，必须在导入 config 之前把目录定下来。
-STAMP = datetime.now().strftime("%Y%m%d-%H%M%S")
-RUN_DIR = BACKEND / "logs" / f"eval_{STAMP}"
-RUN_DIR.mkdir(parents=True, exist_ok=True)
+from evals.run_dir import make_run_dir, note_from_argv, write_manifest  # noqa: E402
+
+# 每一格的 LLM 追踪都单独存，必须在导入 config 之前把目录定下来——所以
+# 版本号和 --note 也得在这里就拿到，赶在 argparse 之前。
+RUN_DIR = make_run_dir("eval", note_from_argv(sys.argv[1:]))
 os.environ["LLM_TRACE_FILE"] = str(RUN_DIR / "llm.jsonl")
 
 from evals.ablations import ABLATION_REGISTRY                # noqa: E402
@@ -62,6 +62,7 @@ def run_cell(scenario, ablation, attempt, verbose=True):
         tools_disabled=ablation.tools_disabled,
         filter_tools=ablation.filter_tools,
         omit_context=ablation.omit_context,
+        handover_windows=ablation.handover_windows,
         deterministic_weather=True,     # 天气必须钉死，否则比的是天气不是模型
         reflect=False,                  # 反思每天 7 次 LLM，对判据没有影响
         trace_file=trace,
@@ -132,6 +133,8 @@ def main(argv=None):
                         help="逗号分隔，或 all。可选：" + ", ".join(sorted(ABLATION_REGISTRY)))
     parser.add_argument("--repeats", type=int, default=1,
                         help="每格跑几次。模型有温度，一次跑不出稳定结论")
+    parser.add_argument("--note", default=None,
+                        help="给这次跑起个名字，进目录名：eval_v8_修了递交")
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(argv)
 
@@ -162,7 +165,16 @@ def main(argv=None):
     print(f"计划：{len(scenarios)} 道题 x {len(ablations)} 种消融 x {args.repeats} 次 "
           f"= {cells} 格")
     print(f"上限 {budget} 次决策（判据一过就早停，实际会少很多）")
-    print(f"日志：{RUN_DIR}")
+
+    manifest = write_manifest(
+        RUN_DIR, ["python", "-m", "evals.runner", *(argv or sys.argv[1:])],
+        model=LLM_MODEL,
+        scenarios=[s.name for s in scenarios],
+        ablations=[a.name for a in ablations],
+        repeats=args.repeats,
+    )
+    print(f"日志：{RUN_DIR}   commit {manifest['commit']}"
+          f"{'（工作区有未提交改动，这个号不足以定位代码）' if manifest['dirty'] else ''}")
 
     # 每跑完一格立刻落盘。整张表要跑一个多小时，只在最后写的话，
     # 中途一次 Ctrl-C 或一次卡死就把已经花掉的钱全扔了。

@@ -278,3 +278,257 @@ def test_money_still_moves_without_meeting(tmp_path, monkeypatch, wallet):
         emma, {"thought": "pocket money", "to": "Adam Harris", "amount": 5}, apart)
 
     assert result["ok"] is True
+
+
+# ---------- 递交窗口：机会打开的那一刻说出来 ----------
+#
+# 上下文里本来就有这三条，只是分三段摆着：能看见谁、身上带着什么、欠谁一件
+# 东西。两次 rendezvous 真跑证明模型不会自己把它们连起来——人碰上了、蛋糕
+# 还在手上、``give_item`` 一次都没调过。所以窗口打开时拼成一句顶到最前。
+#
+# ⚠️ 下面一半的测试在验**不该出现的时候不出现**，尤其是那条不许泄露远处
+# 的人在哪的规则。
+
+def _owes_adam(store):
+    store.accept("Emma Harris", DELIVER, "Adam Harris", "cold_medicine",
+                 deadline_minute=18 * 60, life_day=1, reason="Adam is ill")
+
+
+def test_the_handover_window_is_pointed_out_when_it_opens(store):
+    _owes_adam(store)
+
+    text = store.summary_for("Emma Harris", _world(
+        locations={"Emma Harris": "Park.Bench", "Adam Harris": "Park.Fountain"},
+        holdings={"Emma Harris": {"cold_medicine": 1}}))
+
+    assert "Adam Harris is right here with you" in text
+    assert "only works face to face" in text
+    # 顶到最前，和临近约会同级——转瞬即逝的东西排在清单后面等于没说。
+    assert text.index("right here") < text.index("You have taken on:")
+
+
+def test_the_window_is_about_the_area_not_the_exact_spot(store):
+    """长椅和喷泉是同一个公园。见面按**区域**算，不是按锚点。"""
+    _owes_adam(store)
+
+    text = store.summary_for("Emma Harris", _world(
+        locations={"Emma Harris": "Park.Bench", "Adam Harris": "Park.Fountain"},
+        holdings={"Emma Harris": {"cold_medicine": 1}}))
+
+    assert "right here with you" in text
+
+
+def test_nothing_is_said_when_they_are_somewhere_else(store):
+    _owes_adam(store)
+
+    text = store.summary_for("Emma Harris", _world(
+        locations={"Emma Harris": "Park.Bench", "Adam Harris": "Pharmacy.Counter"},
+        holdings={"Emma Harris": {"cold_medicine": 1}}))
+
+    assert "right here" not in text
+
+
+def test_the_window_never_leaks_where_a_distant_person_is(store):
+    """**这条最要紧。**世界知道所有人在哪，居民不知道。这一行要是漏出
+    对方的位置，写信打听就没有存在意义了。"""
+    _owes_adam(store)
+
+    text = store.summary_for("Emma Harris", _world(
+        locations={"Emma Harris": "Park.Bench", "Adam Harris": "Cafe_bar.Patio"},
+        holdings={"Emma Harris": {"cold_medicine": 1}}))
+
+    assert "Cafe_bar" not in text
+    assert "Patio" not in text
+
+
+def test_nothing_is_said_when_your_hands_are_empty(store):
+    """人在眼前但东西还没买到——这时候提"可以交给他"是噪音。"""
+    _owes_adam(store)
+
+    text = store.summary_for("Emma Harris", _world(
+        locations={"Emma Harris": "Park.Bench", "Adam Harris": "Park.Bench"},
+        holdings={"Emma Harris": {}}))
+
+    assert "right here" not in text
+
+
+def test_the_window_closes_once_they_already_have_it(store):
+    """已经交到手了就别再催。判定看的是**对方**手上有没有。"""
+    _owes_adam(store)
+
+    text = store.summary_for("Emma Harris", _world(
+        locations={"Emma Harris": "Park.Bench", "Adam Harris": "Park.Bench"},
+        holdings={"Emma Harris": {"cold_medicine": 1},
+                  "Adam Harris": {"cold_medicine": 1}}))
+
+    assert "right here" not in text
+    assert "already satisfied" in text
+
+
+def test_a_task_for_yourself_never_opens_a_window(store):
+    """给自己跑腿的任务：不存在"交给对方"这件事。"""
+    store.accept("Emma Harris", DELIVER, "Emma Harris", "cold_medicine",
+                 deadline_minute=18 * 60, life_day=1, reason="for myself")
+
+    text = store.summary_for("Emma Harris", _world(
+        locations={"Emma Harris": "Park.Bench"},
+        holdings={"Emma Harris": {}}))
+
+    assert "right here" not in text
+
+
+# ---------- 见面窗口：通向"当面交"的另一条路 ----------
+#
+# 只接 DELIVER 那条时，rendezvous 上整段是死的——实测那行字在一整次跑里
+# 出现 **0 次**。Arthur 开局就拿着蛋糕，信里问的是"约个时间地点"，他直接
+# accept_meeting，从没调过 accept_task。**修得对不对，和修的那条路走不走人，
+# 是两件事。**
+
+from world.goals import MEET  # noqa: E402
+
+
+def _agreed_to_meet(store, area="Park"):
+    store.accept("Arthur Morgan", MEET, "Mia Thompson", area,
+                 deadline_minute=15 * 60, life_day=1, reason="she asked")
+
+
+def test_meeting_up_also_opens_the_window(store):
+    """**这条就是那次白跑换来的。**没有 DELIVER 任务，只有一个约定，
+    人碰上了、东西在手上——窗口一样得开。"""
+    _agreed_to_meet(store)
+
+    text = store.summary_for("Arthur Morgan", _world(
+        minutes=15 * 60,
+        locations={"Arthur Morgan": "Park.Bench", "Mia Thompson": "Park.Tree"},
+        holdings={"Arthur Morgan": {"cake": 1}}))
+
+    assert "You are with Mia Thompson right now" in text
+    assert "only works face to face" in text
+    assert text.index("right now") < text.index("You have taken on:")
+
+
+def test_empty_handed_at_a_meeting_is_not_worth_a_line(store):
+    """两手空空时提"交给对方"是纯噪音。"""
+    _agreed_to_meet(store)
+
+    text = store.summary_for("Arthur Morgan", _world(
+        minutes=15 * 60,
+        locations={"Arthur Morgan": "Park.Bench", "Mia Thompson": "Park.Tree"},
+        holdings={"Arthur Morgan": {}}))
+
+    assert "right now" not in text
+
+
+def test_a_meeting_says_nothing_until_they_show_up(store):
+    _agreed_to_meet(store)
+
+    text = store.summary_for("Arthur Morgan", _world(
+        minutes=15 * 60,
+        locations={"Arthur Morgan": "Park.Bench", "Mia Thompson": "Cafe_bar.Patio"},
+        holdings={"Arthur Morgan": {"cake": 1}}))
+
+    assert "right now" not in text
+    assert "Cafe_bar" not in text, "不许泄露对方在哪"
+
+
+def test_the_same_person_is_not_named_twice(store):
+    """既接了差事又约了见面时，两条窗口说的是同一件事。
+    说两遍只会占位置——上下文里每一行都得挣得它的位置。"""
+    store.accept("Emma Harris", DELIVER, "Adam Harris", "cold_medicine",
+                 deadline_minute=18 * 60, life_day=1, reason="Adam is ill")
+    store.accept("Emma Harris", MEET, "Adam Harris", "Park",
+                 deadline_minute=15 * 60, life_day=1, reason="agreed to meet")
+
+    text = store.summary_for("Emma Harris", _world(
+        minutes=15 * 60,
+        locations={"Emma Harris": "Park.Bench", "Adam Harris": "Park.Tree"},
+        holdings={"Emma Harris": {"cold_medicine": 1}}))
+
+    assert "is right here with you" in text          # 点名物品的那条留下
+    assert "You are with Adam Harris right now" not in text
+
+
+def test_two_different_people_each_get_their_own_line(store):
+    """去重是按人去的，不是按"说过一次就不说了"。"""
+    store.accept("Emma Harris", DELIVER, "Adam Harris", "cold_medicine",
+                 deadline_minute=18 * 60, life_day=1, reason="Adam is ill")
+    store.accept("Emma Harris", MEET, "Mia Thompson", "Park",
+                 deadline_minute=15 * 60, life_day=1, reason="agreed to meet")
+
+    text = store.summary_for("Emma Harris", _world(
+        minutes=15 * 60,
+        locations={"Emma Harris": "Park.Bench", "Adam Harris": "Park.Tree",
+                   "Mia Thompson": "Park.Fountain"},
+        holdings={"Emma Harris": {"cold_medicine": 1}}))
+
+    assert "Adam Harris is right here with you" in text
+    assert "You are with Mia Thompson right now" in text
+
+
+# ---------- 窗口不能跟着任务一起消失 ----------
+
+def test_the_window_survives_the_goal_being_settled(store):
+    """**这条是两次白跑换来的。**
+
+    决策循环每一步都是先 ``settle`` 再组装上下文，而 MEET 任务在两人到齐
+    的那一刻就被判 done——也就是说**窗口打开的那一刻，正是这条任务从眼前
+    撤下的那一刻**。第一版把窗口挂在 ``active_for`` 上，条件全都满足，
+    只是永远晚了一步：那行字在两整次真跑里出现 **0 次**。
+    """
+    _agreed_to_meet(store)
+    world = _world(minutes=15 * 60,
+                   locations={"Arthur Morgan": "Park.Bench",
+                              "Mia Thompson": "Park.Tree"},
+                   holdings={"Arthur Morgan": {"cake": 1}})
+
+    settled = store.settle("Arthur Morgan", world)
+    assert [g.status for g in settled] == ["done"], "前提：碰上面就会被结算掉"
+    assert store.active_for("Arthur Morgan", 1) == [], "前提：它已经不在办了"
+
+    assert "You are with Mia Thompson right now" in \
+        store.summary_for("Arthur Morgan", world)
+
+
+def test_a_settled_meeting_is_the_only_thing_left_to_say(store):
+    """任务清单空了，窗口仍然要单独出现——不能因为"没有在办的事"就整段返回空。"""
+    _agreed_to_meet(store)
+    world = _world(minutes=15 * 60,
+                   locations={"Arthur Morgan": "Park.Bench",
+                              "Mia Thompson": "Park.Tree"},
+                   holdings={"Arthur Morgan": {"cake": 1}})
+    store.settle("Arthur Morgan", world)
+
+    text = store.summary_for("Arthur Morgan", world)
+
+    assert text.startswith("You are with Mia Thompson right now")
+    assert "You have taken on:" not in text
+
+
+def test_an_expired_meeting_stops_nagging(store):
+    """过期作废的约定不该再催——``failed`` 不进窗口。"""
+    _agreed_to_meet(store)
+    gone = _world(minutes=16 * 60,           # 约的是 15:00，现在 16:00
+                  locations={"Arthur Morgan": "Park.Bench"},
+                  holdings={"Arthur Morgan": {"cake": 1}})
+    settled = store.settle("Arthur Morgan", gone)
+    assert [g.status for g in settled] == ["failed"]
+
+    together = _world(minutes=16 * 60,
+                      locations={"Arthur Morgan": "Park.Bench",
+                                 "Mia Thompson": "Park.Tree"},
+                      holdings={"Arthur Morgan": {"cake": 1}})
+
+    assert "right now" not in store.summary_for("Arthur Morgan", together)
+
+
+def test_a_delivered_errand_does_not_reopen_its_window(store):
+    """交完了就别再提。DELIVER 的判定看的是**对方**手上有没有。"""
+    store.accept("Emma Harris", DELIVER, "Adam Harris", "cold_medicine",
+                 deadline_minute=18 * 60, life_day=1, reason="Adam is ill")
+    done = _world(locations={"Emma Harris": "Park.Bench",
+                             "Adam Harris": "Park.Tree"},
+                  holdings={"Emma Harris": {"cold_medicine": 1},
+                            "Adam Harris": {"cold_medicine": 1}})
+    store.settle("Emma Harris", done)
+
+    assert "right here with you" not in store.summary_for("Emma Harris", done)

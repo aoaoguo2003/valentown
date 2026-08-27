@@ -88,6 +88,7 @@ class Town:
     def __init__(self, *, days=1, max_decisions=None, max_steps=None,
                  tools_disabled=(), filter_tools=False, omit_context=(),
                  deterministic_weather=True, reflect=True,
+                 handover_windows=True,
                  trace_file=None, llm_trace_file=None,
                  budget=None, on_decision=None, stop_when=None):
         self.days = days
@@ -101,6 +102,7 @@ class Town:
         self.budget = Budget() if budget is None else budget
         self.deterministic_weather = deterministic_weather
         self.reflect = reflect
+        self.handover_windows = handover_windows
         self.trace_file = trace_file
         self.llm_trace_file = llm_trace_file
         self.on_decision = on_decision
@@ -148,6 +150,11 @@ class Town:
         if self.llm_trace_file:
             # 成本也要能按格拆：token 和延迟在另一份日志里。
             self._swap(trace_module, "LLM_TRACE_FILE", str(self.llm_trace_file))
+
+        if not self.handover_windows:
+            # 关掉"人就在眼前、东西在手上"那几行。**只关这个，别的一律不动**
+            # ——消融要能归因到一处改动，多关一样这一格就说不清了。
+            self._swap(goals_module, "HANDOVER_WINDOWS", False)
 
         if self.tools_disabled:
             self._disable_tools()

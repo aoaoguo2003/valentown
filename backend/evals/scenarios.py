@@ -268,9 +268,13 @@ SCENARIO_REGISTRY = {
         judge=_judge_rendezvous,
         days=1,
         # 和 errand 同一个结构性问题：约定要等到点，见面要两人都到。
-        # 通关的几次用了 24-46 次决策，失败的几次全部撞在 70 这个上限上
-        # ——那是**没跑完**，不是做不到。早停兜着，富余的预算不会真花掉。
-        max_decisions=150,
+        # 通关的几次用了 24-46 次决策，失败的几次全部撞在上限上——那是
+        # **没跑完**，不是做不到。早停兜着，富余的预算不会真花掉。
+        #
+        # 150 也不够：基线两次都停在 151，都是 3/4 环（见上面了、蛋糕没递）。
+        # 提到 300 是为了**把预算这个嫌疑彻底排除**——再卡在 3/4，那就只能
+        # 是模型的问题了。
+        max_decisions=300,
         stages=(
             Stage("读到信", _read_their_mail("Arthur Morgan")),
             Stage("约定成立", lambda town: town.goals.meeting_record()["arranged"] > 0),

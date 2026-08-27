@@ -41,6 +41,7 @@ class Ablation:
     max_steps: int = None
     filter_tools: bool = False
     omit_context: tuple = ()
+    handover_windows: bool = True
 
 
 def _everything_except(*keep):
@@ -94,6 +95,14 @@ ABLATION_REGISTRY = {
         name="no-events",
         headline="不告诉他上次行动之后发生了什么（钱到账、东西到手）",
         omit_context=("what_has_happened_since",),
+    ),
+    "no-handover-window": Ablation(
+        name="no-handover-window",
+        headline="人就在眼前、东西在手上——不提醒他这一刻交得出去",
+        # 摘的是**三行字**，不是一件工具：`give_item` 照样在，照样能调。
+        # 考的是"上下文把两条已知信息拼在一起"值多少——改之前它们分三段
+        # 摆着，模型 302 轮里一次都没连起来过。
+        handover_windows=False,
     ),
     "no-prices": Ablation(
         name="no-prices",

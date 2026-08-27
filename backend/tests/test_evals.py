@@ -123,8 +123,12 @@ def test_every_ablation_actually_takes_something_away():
     """``none`` 之外的每一项都必须真的关掉点什么，否则它和基线跑出
     一样的数字，看上去像"这个能力没用"。"""
     for name, ablation in ABLATION_REGISTRY.items():
+        # ⚠️ 加了新旋钮就要加到这里来。漏登记的话，一条"什么都没关掉"的
+        # 消融会安静地和基线跑出同样的数字，被读成"这个能力没用"。
+        # 注意 handover_windows 的"开"是 True，所以取反才算一个旋钮。
         knobs = (ablation.tools_disabled, ablation.max_steps,
-                 ablation.filter_tools, ablation.omit_context)
+                 ablation.filter_tools, ablation.omit_context,
+                 not ablation.handover_windows)
         if name == "none":
             assert not any(knobs), "基线不该关掉任何东西"
         else:
@@ -239,3 +243,55 @@ def test_the_last_stage_and_the_verdict_agree(name):
         town.economy.seed(holdings=goal_reached)
         assert last.reached(town) is True
         assert scenario.judge(town)["passed"] is True
+
+
+# ---------- no-handover-window：消融必须真的关掉那几行 ----------
+#
+# ⚠️ **一条什么都没关掉的消融比没有消融更糟**：记分卡上它和基线一样，
+# 读表的人会得出"这个能力没用"，而真相是它根本没被摘掉。
+
+def test_the_handover_window_ablation_actually_silences_it():
+    from evals.ablations import ABLATION_REGISTRY
+    from runtime.scheduler import Town
+    from world import goals
+    from world.snapshot import snapshot
+
+    def cake_in_hand_at_the_park(town):
+        town.economy.seed(holdings={"Arthur Morgan": {"cake": 1}})
+        town.goals.arrange_meeting("Arthur Morgan", "Mia Thompson", "Park",
+                                   at_minute=15 * 60, life_day=1, reason="she asked")
+        return snapshot(time_minutes=15 * 60, life_day=1,
+                        agent_locations={"Arthur Morgan": "Park.Bench",
+                                         "Mia Thompson": "Park.Tree"})
+
+    with Town(days=1) as town:
+        assert "right now" in goals.goal_store.summary_for(
+            "Arthur Morgan", cake_in_hand_at_the_park(town)), "基线该看得见"
+
+    off = ABLATION_REGISTRY["no-handover-window"]
+    with Town(days=1, handover_windows=off.handover_windows) as town:
+        assert "right now" not in goals.goal_store.summary_for(
+            "Arthur Morgan", cake_in_hand_at_the_park(town)), "消融该看不见"
+
+
+def test_the_ablation_leaves_the_tool_itself_alone():
+    """摘的是**三行字**，不是一件工具。`give_item` 照样在，照样能调——
+    否则量的就成了"没有这件工具做不成事"，那是另一个问题。"""
+    from evals.ablations import ABLATION_REGISTRY
+
+    off = ABLATION_REGISTRY["no-handover-window"]
+
+    assert off.tools_disabled == ()
+    assert off.omit_context == ()
+    assert off.max_steps is None
+
+
+def test_switching_it_off_is_restored_afterwards():
+    """漏还原一处，同一进程里后面几十格全跟着关。"""
+    from runtime.scheduler import Town
+    from world import goals
+
+    with Town(days=1, handover_windows=False):
+        assert goals.HANDOVER_WINDOWS is False
+
+    assert goals.HANDOVER_WINDOWS is True
