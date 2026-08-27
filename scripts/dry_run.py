@@ -92,6 +92,23 @@ def print_day_end(life_day, report):
         print(f"  {name}: {answer[:110]}")
 
 
+def reports(action_trace, llm_trace):
+    """行为和成本都从**自己那两份日志**里算——不在内存里另数一遍。
+
+    ⚠️ 两边形状不同：``format_report`` 要的是 ``summarise`` 的结果，
+    ``format_cost_report`` 要的是 ``summarise_cost`` 的结果。少套一层
+    不会在导入时报错——它等整整一次跑结束、二十四分钟之后才炸，
+    而那时候仿真数据其实都好好的，只是报告打不出来。真发生过一次，
+    所以这段被抽出来，好让测试碰得到它。
+    """
+    return "\n\n".join((
+        metrics.format_report(metrics.summarise(metrics.load(action_trace)),
+                              title="behaviour"),
+        metrics.format_cost_report(metrics.summarise_cost(metrics.load(llm_trace)),
+                                   title="cost"),
+    ))
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=2)
@@ -146,12 +163,8 @@ def main():
         print(f"\n  scenario {scenario.name}: {mark}")
         print(f"    {verdict['detail']}")
 
-    # 行为和成本都从自己那两份日志里算——不在内存里另数一遍。
     print()
-    print(metrics.format_report(metrics.load(ACTION_TRACE), title="behaviour"))
-    print()
-    print(metrics.format_cost_report(metrics.summarise_cost(metrics.load(LLM_TRACE)),
-                                     title="cost"))
+    print(reports(ACTION_TRACE, LLM_TRACE))
 
     print(f"\n  traces written to\n    {ACTION_TRACE}\n    {LLM_TRACE}")
     return 0
