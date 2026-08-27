@@ -86,3 +86,41 @@ def test_the_manifest_records_what_code_was_run(tmp_path):
     assert saved["model"] == "deepseek-v4-flash"
     assert "dirty" in saved, "脏不脏必须写在脸上——脏的时候 commit 号定位不了代码"
     assert "commit" in saved
+
+
+# --- 空号要还回去 -------------------------------------------------------------
+
+def test_an_empty_run_dir_is_reclaimed_on_exit(tmp_path):
+    """``evals.runner`` 在 import 时就建目录（``LLM_TRACE_FILE`` 必须赶在
+    config 之前定下来），所以**光是 import 一次就烧掉一个版本号**——
+    实际发生过，v13/v14 两个空目录就是这么来的。
+
+    空号让序列说谎：看着像跑过，其实什么都没产出。
+    """
+    from evals.run_dir import _discard_if_empty
+
+    run_dir = make_run_dir("eval", logs_dir=tmp_path)
+    assert run_dir.is_dir()
+
+    _discard_if_empty(run_dir)
+
+    assert not run_dir.exists()
+    assert next_version("eval", tmp_path) == 1, "号要还回去，下一次还是 v1"
+
+
+def test_a_run_that_produced_something_is_kept(tmp_path):
+    from evals.run_dir import _discard_if_empty
+
+    run_dir = make_run_dir("eval", logs_dir=tmp_path)
+    (run_dir / "rows.jsonl").write_text("{}\n", encoding="utf-8")
+
+    _discard_if_empty(run_dir)
+
+    assert run_dir.is_dir()
+
+
+def test_reclaiming_never_raises_on_the_way_out(tmp_path):
+    """退出路径上炸一下会掩盖真正的错误——目录早没了也得安静收场。"""
+    from evals.run_dir import _discard_if_empty
+
+    _discard_if_empty(tmp_path / "never-existed")

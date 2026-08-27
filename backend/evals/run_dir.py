@@ -16,6 +16,7 @@ v7 和 v8 结果不同，中间改了什么无从查起。所以每个目录里�
 唯一确定跑的是哪份代码，这一点必须写在脸上，不能让人事后误以为可比。
 """
 
+import atexit
 import json
 import re
 import subprocess
@@ -44,13 +45,33 @@ def next_version(prefix, logs_dir=LOGS):
 
 
 def make_run_dir(prefix, note=None, logs_dir=LOGS):
-    """建目录并返回它。备注只做最低限度的清洗——它是给人看的。"""
+    """建目录并返回它。备注只做最低限度的清洗——它是给人看的。
+
+    目录**立刻建**，这样并发跑两个评估时版本号不会撞车（编号是从已有目录
+    数出来的，不落地就等于没占位）。代价是空目录：``evals.runner`` 在
+    import 时就要拿到路径（``LLM_TRACE_FILE`` 得赶在 config 之前定下来），
+    于是**光是 import 一次就会烧掉一个版本号**——实际发生过，v13/v14 两个
+    空目录就是这么来的。空号会让序列说谎：看着像跑过，其实什么都没产出。
+
+    所以退出时回收：还是空的就删掉。
+    """
     name = f"{prefix}_v{next_version(prefix, logs_dir)}"
     if note:
         name += "_" + re.sub(r"[^\w一-鿿-]+", "-", note.strip()).strip("-")
     run_dir = logs_dir / name
     run_dir.mkdir(parents=True, exist_ok=True)
+    atexit.register(_discard_if_empty, run_dir)
     return run_dir
+
+
+def _discard_if_empty(run_dir):
+    """没产出任何东西就把号还回去。**只删空目录**，出错一律不管——
+    退出路径上炸一下会掩盖真正的错误。"""
+    try:
+        if run_dir.is_dir() and not any(run_dir.iterdir()):
+            run_dir.rmdir()
+    except OSError:
+        pass
 
 
 def note_from_argv(argv):

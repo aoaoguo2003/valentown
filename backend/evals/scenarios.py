@@ -291,7 +291,11 @@ SCENARIO_REGISTRY = {
         judge=_judge_scarcity,
         days=1,
         # 通关用 37-46 次，上限 50 —— 贴得太近了。
-        max_decisions=120,
+        # 通关只要 38-39 次决策，所以 120 看着很宽——但**失败的格子不是**：
+        # 改造前那两格正好停在 120/121，是被预算掐断的，而 errand 和
+        # rendezvous 的失败都跑到 220 左右天黑自然结束。三道题里只有它
+        # 会伪造失败，对齐到 300。
+        max_decisions=300,
         stages=(
             Stage("有人读到信", lambda town: any(
                 town.mailbox.unread_counts().get(who, 0) == 0
