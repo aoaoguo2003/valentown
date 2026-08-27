@@ -16,9 +16,9 @@ screen recording on top of that frame in PowerPoint (exact size and position are
 if the video will not play at the venue, jump to backup slide B2, which is the same still. Slide 6, the
 execution flow chart, sets the video up — it names the loop the video then shows.
 
-The deck runs about 10 minutes 15 seconds at 130 words per minute, including the 2-minute video. The
-English is written to be spoken — contractions and short sentences — while keeping the register of a
-conference talk. Figures 1–3 are taken from the paper; the
+The deck runs about 9 minutes at an unhurried 115 words per minute, including the 2-minute video — the
+slack is there so the talk can be delivered slowly. The English is written to be spoken: short sentences,
+plain words, no subordinate clauses to get lost in, while keeping the register of a conference talk. Figures 1–3 are taken from the paper; the
 screenshot on slide 8 is `docs/screenshot.png`, and the resident sprites and location tiles come from
 `frontend/assets/`. The stacked bars on slide 11 are labelled schematic — they show the qualitative
 shift in memory composition the paper reports, not measured proportions.
