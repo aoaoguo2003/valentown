@@ -44,6 +44,28 @@ def no_sleeping(monkeypatch):
     monkeypatch.setattr(client_module.time, "sleep", lambda seconds: None)
 
 
+@pytest.fixture(autouse=True)
+def a_key_that_is_never_used(monkeypatch):
+    """给客户端一个假 key。**不发请求，只是让它肯走到发请求那一步。**
+
+    ``_post_with_retries`` 在 ``if not self.api_key`` 时直接 return，于是
+    被 monkeypatch 掉的 ``requests.post`` 一次都不会被调到，熔断器也就永远
+    不会被触发——六个测试全红，而且红得莫名其妙：
+
+        assert LLMClient.fatal_error is not None
+        E       assert None is not None
+
+    在**开发机上看不出来**，因为 ``backend/.env`` 里有真 key；clone 下来
+    没有 .env 的人一跑就是六个红，而 README 写着"463 tests, no LLM,
+    no network"。这个文件的开头讲的正是"分辨模型没做到 vs 后端挂了"——
+    结果它自己栽在了环境上。
+
+    复现：``LLM_API_KEY= DEEPSEEK_API_KEY= python -m pytest tests/ -q``
+    """
+    monkeypatch.setattr(client_module, "LLM_API_KEY", "test-key-never-sent",
+                        raising=False)
+
+
 def _count_posts(monkeypatch, response_for):
     """替掉 requests.post，记下真正发出去了几次。"""
     calls = []
