@@ -101,6 +101,11 @@ def write_manifest(run_dir, argv, **extra):
     ``dirty`` 为真时 ``commit`` **不足以确定代码**——跑之前没提交的改动
     不在那个 commit 里。宁可记下来让人皱眉，也不要留一个看起来可比、
     其实不可比的版本号。
+
+    ⚠️ ``dirty`` **只看已跟踪文件**。第一版把未跟踪的也算进去，于是工作区里
+    随便躺着一份别的东西（实际发生过：一份演讲稿）就让每一次跑都挂上
+    "不可归因"。**一个永远亮着的警告灯等于没有警告灯**——真出问题时
+    没人会当回事。未跟踪文件另记一个数，它不改变已提交的代码。
     """
     manifest = {
         "version": run_dir.name,
@@ -108,7 +113,11 @@ def write_manifest(run_dir, argv, **extra):
         "command": " ".join(argv),
         "commit": _git("rev-parse", "--short", "HEAD"),
         "branch": _git("rev-parse", "--abbrev-ref", "HEAD"),
-        "dirty": bool(_git("status", "--porcelain")),
+        "dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
+        "untracked": len((_git("status", "--porcelain",
+                               "--untracked-files=all") or "").splitlines())
+        - len((_git("status", "--porcelain",
+                    "--untracked-files=no") or "").splitlines()),
         **extra,
     }
     (run_dir / "run.json").write_text(

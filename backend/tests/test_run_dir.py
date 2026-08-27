@@ -124,3 +124,42 @@ def test_reclaiming_never_raises_on_the_way_out(tmp_path):
     from evals.run_dir import _discard_if_empty
 
     _discard_if_empty(tmp_path / "never-existed")
+
+
+def test_untracked_files_do_not_count_as_dirty(tmp_path, monkeypatch):
+    """``dirty`` 只看**已跟踪**文件。
+
+    第一版把未跟踪的也算进去，于是工作区里随便躺着一份别的东西（实际发生
+    过：一份 89MB 的演讲稿）就让每一次跑都挂上"不可归因"。**一个永远亮着
+    的警告灯等于没有警告灯**——真出问题时没人会当回事。
+    """
+    import evals.run_dir as run_dir
+
+    seen = []
+
+    def fake_git(*args):
+        seen.append(args)
+        if args[:2] == ("status", "--porcelain"):
+            # 已跟踪的干净，未跟踪的有两个
+            return "" if "--untracked-files=no" in args else "?? a.pptx\n?? b.png"
+        return "abc1234"
+
+    monkeypatch.setattr(run_dir, "_git", fake_git)
+    saved = run_dir.write_manifest(tmp_path, ["x"])
+
+    assert saved["dirty"] is False, "只有未跟踪文件时，commit 号仍然定位得了代码"
+    assert saved["untracked"] == 2
+    assert ("status", "--porcelain", "--untracked-files=no") in seen
+
+
+def test_a_real_edit_still_shows_up_as_dirty(tmp_path, monkeypatch):
+    import evals.run_dir as run_dir
+
+    def fake_git(*args):
+        if args[:2] == ("status", "--porcelain"):
+            return " M backend/world/goals.py"
+        return "abc1234"
+
+    monkeypatch.setattr(run_dir, "_git", fake_git)
+
+    assert run_dir.write_manifest(tmp_path, ["x"])["dirty"] is True
