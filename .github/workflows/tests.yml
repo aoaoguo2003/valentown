@@ -1,0 +1,51 @@
+name: tests
+
+# README 说"483 tests, no LLM, no network"。这个 workflow 存在的理由就是
+# **让那句话可被外人验证**——不用 clone、不用配 .env，点开一次运行就能看到。
+#
+# 它也确实抓到过东西：熔断那六个测试在有 .env 的机器上一直是绿的，在没有
+# .env 的机器上必红，因为客户端在缺 key 时提前 return，被 monkeypatch 的
+# requests.post 一次都没被调到。CI 环境天然没有 .env，正是那类问题的天敌。
+#
+# ⚠️ 这里**不跑**评估集。那套要花真钱（一次全矩阵 5900 万 token、6.6 小时），
+# 而且要打真实 API——CI 该跑的是确定性的那一半。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      # 装的就是 README 里让人装的那一份。CI 若另装一套精简依赖，
+      # 它验证的就不是文档里那条路了。
+      - name: install
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+
+      # 不设任何 LLM_API_KEY：整套测试必须在没有密钥、没有网络的前提下通过。
+      - name: pytest
+        working-directory: backend
+        run: python -m pytest tests/ -q
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      # 作息表和路径的冒烟测试，纯计算、不打 API。要在仓库根跑：
+      # 它按 cwd 找 frontend/js/game.js。
+      - run: node scripts/smoke_24h.js > /dev/null
