@@ -3554,6 +3554,19 @@ function moveAgent(agentName, targetLocation, day) {
             return;
         }
 
+        // ⚠️ **决定出发和真正迈步之间隔着一整句话。**那句"我要去公园"要几秒钟
+        // 才说完，而这几秒里天可能已经黑了。回调不看一眼就迈步的话，一个面板上
+        // 写着 "Sleeping until 7:10 AM" 的人会从床上爬起来往公园走——实测离床
+        // 133 像素、tween 还在飞，而夜间清理已经把他的动作抹掉了，所以这趟永远
+        // 走不完。
+        //
+        // 这条和 `abandonMove` 是同一条原则：**每一个早退口都要把回合交还。**
+        const nightState = agentState[agentName];
+        if (nightInProgress || nightState?.sleeping || nightState?.goingToBed) {
+            abandonMove(agentName, 'Day is over');
+            return;
+        }
+
         setAgentPose(agentName, 'stand');
         agents[agentName].isMoving = true;
         agentPhases[agentName] = 'Moving';
@@ -4072,6 +4085,9 @@ function startUnifiedNight(scene) {
     dailyPlanInProgress = true;
     Object.keys(agentPhases).forEach(agentName => {
         hideStatusBubble(agentName);
+        // ⚠️ 先掐掉还在飞的移动，再摆睡姿。`positionAgentForSleep` 只是把坐标
+        // 挪到床上，**不动 tween**——一段还在飞的走路会立刻把人从床上拽回街上。
+        cancelAgentMotion(agentName);
         agentPhases[agentName] = 'Sleeping';
         agentLocations[agentName] = formatSleepLocation(agentName);
         setAgentPose(agentName, 'lie');

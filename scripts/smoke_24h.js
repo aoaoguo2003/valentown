@@ -73,6 +73,9 @@ globalThis.__smoke = {
   setSimulationSpeed,
   requestNextDecision,
   clearCurrentAction,
+  moveAgent,
+  startUnifiedNight,
+  cancelAgentMotion,
   activeSpeechBubbles,
   activeStatusBubbles,
   formatSleepLocation,
@@ -453,6 +456,71 @@ assert(
     'precondition: the action is not registered until the replay finishes');
   assert(api.agentState[agentName].deciding === true,
     'the turn must stay open until the action is registered, or the driver fires a second paid decision request');
+
+  // 5. 天黑之后，没人再出发；已经在路上的也停下。
+  //
+  // ⚠️ 决定出发和真正迈步之间隔着一整句话——"我要去公园"要几秒钟才说完，
+  // 而这几秒里天可能已经黑了。实测：一个面板上写着 "Sleeping until 7:10 AM"
+  // 的人从床上爬起来往公园走，离床 133 像素、tween 还在飞，而夜间清理已经
+  // 把他的动作抹掉了，所以这趟永远走不完。**梦游。**
+  //
+  // 两层都要挡：迈步那一刻看一眼天色（下面 5a），夜幕降临时掐掉还在飞的
+  // 移动（5b）——`positionAgentForSleep` 只挪坐标不动 tween，一段还在飞的
+  // 走路会立刻把人从床上拽回街上。
+  {
+    const sleeper = agentNames[2];
+    const noop2 = () => {};
+    const inert = new Proxy({}, { get: () => () => inert });
+    // 定时器和补间都**立即**触发：把"说完话之后"这一刻直接搬到眼前。
+    const instantScene = {
+      add: { text: () => inert, graphics: () => inert, container: () => inert },
+      tweens: { add: cfg => { cfg.onComplete?.(); return { remove: noop2 }; } },
+      time: {
+        addEvent: () => ({ remove: noop2 }),
+        delayedCall: (delay, cb) => { cb(); return { remove: noop2 }; }
+      }
+    };
+
+    // 5a. 说话期间天黑了 —— 不许迈步，而且要把回合交还。
+    //    ⚠️ scene 桩要**够用**：桩太薄的话，摘掉守卫之后是靠 TypeError 崩掉
+    //    才"红"的，那是偶然，不是断言在起作用。
+    api.__setScene(instantScene);
+    api.agents[sleeper] = makeSprite({ agentName: sleeper });
+    api.agentState[sleeper].sleeping = true;
+    api.setCurrentAction(sleeper, {
+      action: 'take a walk', destination: 'Park.Bench',
+      durationMinutes: 30, talkTo: null, endsAtMinutes: null, source: 'llm'
+    });
+
+    api.moveAgent.call(instantScene, sleeper, 'Park.Bench', 1);
+
+    assert(api.agentLocations[sleeper] !== 'Park.Bench',
+      'a sleeping resident must not end up at the park — that is the sleepwalk');
+    assert(api.agents[sleeper].isMoving === false,
+      'nobody sets off after the day has ended');
+    assert(!api.agentCurrentActions[sleeper],
+      'a move called off at nightfall must still hand the turn back');
+    api.agentState[sleeper].sleeping = false;
+    api.__setScene(undefined);
+
+    // 5b. 夜幕降临时，还在飞的那一段要被掐掉。
+    const killed = [];
+    const nightScene = {
+      add: { text: () => inert, graphics: () => inert, container: () => inert },
+      tweens: { add: noop2, killTweensOf: target => killed.push(target.agentName) },
+      time: { addEvent: () => ({ remove: noop2 }), delayedCall: () => ({ remove: noop2 }) }
+    };
+    api.__setScene(nightScene);
+    api.agents[sleeper].isMoving = true;
+
+    api.startUnifiedNight(nightScene);
+
+    assert(killed.includes(sleeper),
+      'nightfall must kill the walk still in flight, or the tween drags the sleeper back out of bed');
+    assert(api.agents[sleeper].isMoving === false,
+      'nightfall must clear the moving flag along with the tween');
+    api.__setScene(undefined);
+  }
 
   console.log(JSON.stringify({
   checkedAgents: report.length,
