@@ -68,6 +68,9 @@ globalThis.__smoke = {
   stopWalkingAnimation,
   showStatusEmoji,
   showAgentSpeech,
+  announceMovementThen,
+  setSimulationPaused,
+  setSimulationSpeed,
   activeSpeechBubbles,
   activeStatusBubbles,
   formatSleepLocation,
@@ -105,6 +108,20 @@ const ALLOWED_DESTINATIONS = [
   ...HOME_AREAS.flatMap(home => HOME_ROOM_LOCATIONS.map(room => `${home}.${room}`)),
   ...PUBLIC_LOCATIONS
 ];
+
+// Phaser 显示对象的宽容桩：数据字段照实读写，没桩到的渲染方法当空操作。
+// 少了它，任何走到 refreshAgentTints / setTexture 的逻辑都会炸在渲染调用上,
+// 于是那条路径**根本测不到**——而那正是要测的东西。
+function makeSprite(fields) {
+  const target = Object.assign({ x: 0, y: 0, isMoving: false, isPreparingToMove: false }, fields);
+  return new Proxy(target, {
+    get(obj, prop) {
+      if (prop in obj) return obj[prop];
+      if (typeof prop === 'symbol') return undefined;
+      return () => {};
+    }
+  });
+}
 
 function assert(condition, message) {
   if (!condition) {
@@ -229,7 +246,7 @@ assert(api.agentPhases[stuckAgent] === 'Path blocked',
 
   // 从床边出发，走到公园
   api.agentLocations[walker] = bed;
-  const sprite = { agentName: walker, x: 0, y: 0, isMoving: true, isPreparingToMove: false };
+  const sprite = makeSprite({ agentName: walker, isMoving: true });
   api.agents[walker] = sprite;
 
   // 只关心 stopWalkingAnimation 收到的是哪个地点。先把真函数存到 VM 里，
@@ -260,7 +277,7 @@ assert(api.agentPhases[stuckAgent] === 'Path blocked',
 // 函数里各挡一边：说话时收起表情，有话在说时不摆表情。
 {
   const talker = agentNames[1];
-  api.agents[talker] = { agentName: talker, x: 0, y: 0 };
+  api.agents[talker] = makeSprite({ agentName: talker });
   api.agentState[talker] = { sleeping: false, arrived: true };
   api.agentLocations[talker] = 'Park.Bench';
 
@@ -301,6 +318,74 @@ assert(api.agentPhases[stuckAgent] === 'Path blocked',
     'starting to speak must clear an emoji already on screen — text wins');
 
   delete api.activeSpeechBubbles[talker];
+
+  // ③ 被打断的话，等它的**动作**必须照样被放行。
+  //
+  // ⚠️ 这条是跑起来才发现的：Mia 卡在 "Preparing to move" 一整天没动。
+  // `announceMovementThen` 先把 isPreparingToMove 设为 true，然后**等语音
+  // 气泡结束才迈步**；而 `showAgentSpeech` 遇到已有气泡时，只是把它销毁、
+  // 从表里删掉——回调直接丢了。于是任何在"准备出发"期间插进来的第二句话
+  // （对话就是这么来的）都让那个居民永远停在原地：isPreparingToMove 再没人
+  // 清，而每帧的驱动看到 currentAction 还挂着就 return。
+  //
+  // 话被打断可以，等在后面的动作不能跟着一起没。
+  let released = false;
+  api.agents[talker].isPreparingToMove = false;
+  api.agentState[talker].sleeping = false;
+
+  api.announceMovementThen(stubScene, talker, 'Park.Bench', 'take a walk', () => { released = true; });
+  assert(api.agents[talker].isPreparingToMove === true,
+    'precondition: announcing a move parks the agent until the bubble ends');
+
+  api.showAgentSpeech.call(stubScene, talker, 'someone interrupts', noop);
+
+  assert(released,
+    'a speech bubble cut short must still release whatever was waiting on it');
+  assert(api.agents[talker].isPreparingToMove === false,
+    'an interrupted announcement must not leave the agent parked forever');
+
+  delete api.activeSpeechBubbles[talker];
+}
+
+// 2f. Pause 必须让**小镇**停下来，不只是时钟。
+//
+// ⚠️ 这条读代码看不出来，是在浏览器里按下暂停才发现的：`simulationPaused`
+// 只让 update() 提前返回，而走路是 Phaser 的 tween、说话和对话是
+// scene.time 的定时器——**两者都不经过 update()**。实测暂停 120 帧：
+// 时钟推进 0 分钟，Ron Parker 走了 60 像素。世界和时钟就此对不上。
+{
+  const calls = [];
+  const spyScene = {
+    tweens: { pauseAll: () => calls.push('pauseAll'), resumeAll: () => calls.push('resumeAll'), timeScale: 1 },
+    time: { paused: false, timeScale: 1 }
+  };
+  vm.runInContext('globalThis.__smoke.__setScene = s => { gameScene = s; };', context);
+  api.__setScene(spyScene);
+
+  api.setSimulationPaused(true);
+  assert(calls.includes('pauseAll'), 'pausing must stop the tweens, or residents keep walking while paused');
+  assert(spyScene.time.paused === true, 'pausing must stop the timers, or speech and conversations keep running');
+
+  api.setSimulationPaused(false);
+  assert(calls.includes('resumeAll'), 'resuming must restart the tweens');
+  assert(spyScene.time.paused === false, 'resuming must restart the timers');
+
+  // 2g. 倍速要作用在**正在飞的**动画上。
+  //
+  // ⚠️ 原本是创建动画的那一刻把时长除以倍速，于是切到 4x 只影响之后新建的
+  // 动画。实测：60 帧内时钟推进 3.98 分钟，而已经在飞的那条腿一点没变——
+  // 人在爬，表在飞。timeScale 是同一件事的正确落点。
+  api.setSimulationSpeed(4);
+  assert(spyScene.tweens.timeScale === 4,
+    'changing speed must reach the tweens already in flight, not just the next ones');
+  assert(spyScene.time.timeScale === 4,
+    'changing speed must reach the timers already queued');
+
+  api.setSimulationSpeed(1);
+  assert(spyScene.tweens.timeScale === 1 && spyScene.time.timeScale === 1,
+    'going back to 1x must restore the scale on both managers');
+
+  api.__setScene(undefined);
 }
 
 // 3. 对话的同地检测：被派往同一区域的两个 agent 会解析为相同的

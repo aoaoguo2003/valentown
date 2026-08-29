@@ -1034,6 +1034,7 @@ function clearInteractionAnchorDebug() {
 
 function create() {
     gameScene = this;
+    applyTimeScale();
     setupUi();
     updateUi();
 
@@ -1148,7 +1149,7 @@ function setupUi() {
 
         resetButton.disabled = true;
         simulationStarted = false;
-        simulationPaused = false;
+        setSimulationPaused(false);
         document.getElementById('status-label').textContent = 'Resetting…';
 
         requestReset()
@@ -1171,14 +1172,14 @@ function setupUi() {
 
     startButton.addEventListener('click', () => {
         simulationStarted = true;
-        simulationPaused = false;
+        setSimulationPaused(false);
         syncSimulationProgress({ force: true });
         updateUi();
     });
 
     pauseButton.addEventListener('click', () => {
         if (!simulationStarted) return;
-        simulationPaused = !simulationPaused;
+        setSimulationPaused(!simulationPaused);
         syncSimulationProgress({ force: true });
         updateUi();
     });
@@ -1196,7 +1197,7 @@ function setupUi() {
 
     document.querySelectorAll('.speed-button').forEach(button => {
         button.addEventListener('click', () => {
-            simulationSpeed = Number(button.dataset.speed) || 1;
+            setSimulationSpeed(Number(button.dataset.speed) || 1);
             document.querySelectorAll('.speed-button').forEach(speedButton => {
                 speedButton.classList.toggle('active', speedButton === button);
             });
@@ -1479,16 +1480,9 @@ function cancelAgentMotion(agentName) {
 }
 
 function hideAgentSpeech(agentName) {
-    const speechBubble = activeSpeechBubbles[agentName];
-    if (!speechBubble) {
-        return;
-    }
-
-    speechBubble.cancelled = true;
-    speechBubble.typingEvent?.remove(false);
-    speechBubble.fadeTimer?.remove(false);
-    speechBubble.container?.destroy();
-    delete activeSpeechBubbles[agentName];
+    // 走同一条出口：被玩家接管打断时，等这句话的动作也要被放行，
+    // 否则接管一次就把那个居民冻在"准备出发"上了。
+    dismissSpeechBubble(activeSpeechBubbles[agentName], agentName);
 }
 
 function focusGameForKeyboard() {
@@ -2295,12 +2289,46 @@ function getDayPhase(minutes) {
     return 'Night';
 }
 
-function scaledDuration(duration) {
-    return duration / simulationSpeed;
+// 倍速得作用在**正在飞的**动画上，不只是之后新建的。
+//
+// ⚠️ 原本是创建动画的那一刻把时长除以倍速。于是切到 4x 时，时钟立刻按
+// 4 倍走，而已经在飞的那条腿还是老时长——实测：60 帧内时钟推进 3.98
+// 分钟，居民只挪了 27 像素，那条 8923ms 的 tween 一点没变。**人在爬，
+// 表在飞。**Phaser 的 timeScale 才是这件事的正确落点：设一次，在飞的
+// tween 和已排队的定时器全部跟着改。
+function setSimulationSpeed(speed) {
+    simulationSpeed = speed;
+    applyTimeScale();
+}
+
+// 场景建好时也要落一次——倍速可能在场景存在之前就被点过。
+function applyTimeScale() {
+    if (!gameScene) return;
+    gameScene.tweens.timeScale = simulationSpeed;
+    gameScene.time.timeScale = simulationSpeed;
+}
+
+// Pause 得让**小镇**停下来，不只是时钟。
+//
+// ⚠️ 这个 bug 靠读代码看不出来：`simulationPaused` 只让 update() 提前返回，
+// 而走路是 Phaser 的 tween、说话和对话是 scene.time 的定时器——**两者都不
+// 经过 update()**。实测暂停 120 帧：时钟推进 0 分钟，Ron Parker 走了 60 像素。
+// 暂停期间居民照样走到目的地、照样把话说完，只是时间不动——放开之后世界
+// 和时钟就对不上了。
+function setSimulationPaused(paused) {
+    simulationPaused = paused;
+    if (!gameScene) return;
+    if (paused) {
+        gameScene.tweens.pauseAll();
+        gameScene.time.paused = true;
+    } else {
+        gameScene.tweens.resumeAll();
+        gameScene.time.paused = false;
+    }
 }
 
 function schedule(scene, delay, callback) {
-    return scene.time.delayedCall(scaledDuration(delay), callback);
+    return scene.time.delayedCall(delay, callback);
 }
 
 function resetInternalStateClock(agentName) {
@@ -2633,6 +2661,28 @@ function getFloatingBubblePosition(scene, agent, localBounds, aboveOffset, below
     };
 }
 
+// 拆掉一个气泡，并且**保证等它的人被放行一次**。
+//
+// 正常淡出、被下一句话替换、被玩家接管打断——三条路都走这里，这样
+// "回调有没有跑" 就不再取决于气泡是怎么结束的。``released`` 保证只跑一次。
+function dismissSpeechBubble(speechBubble, agentName) {
+    if (!speechBubble) return;
+
+    speechBubble.cancelled = true;
+    speechBubble.typingEvent?.remove(false);
+    speechBubble.fadeTimer?.remove(false);
+    speechBubble.container?.destroy();
+    if (activeSpeechBubbles[agentName] === speechBubble) {
+        delete activeSpeechBubbles[agentName];
+    }
+
+    if (speechBubble.released) return;
+    speechBubble.released = true;
+    if (typeof speechBubble.onComplete === 'function') {
+        speechBubble.onComplete();
+    }
+}
+
 // 说完话之后，把表情气泡放回去——前提是他还站在那儿做着那件事。
 //
 // 只在"到了、没在走、没睡着、手上有动作"时才恢复：正走在路上或者已经躺下
@@ -2663,11 +2713,16 @@ function showAgentSpeech(agentName, speechContent, onComplete) {
 
     const previousBubble = activeSpeechBubbles[agentName];
     if (previousBubble) {
-        previousBubble.cancelled = true;
-        previousBubble.typingEvent?.remove(false);
-        previousBubble.fadeTimer?.remove(false);
-        previousBubble.container?.destroy();
         delete activeSpeechBubbles[agentName];
+        // ⚠️ **被打断的气泡也要放行等它的人。**这个回调不只是"说完了"的通知——
+        // ``announceMovementThen`` 靠它启动行走：先把 isPreparingToMove 设为
+        // true，然后等气泡结束才迈步。以前这里只是把旧气泡销毁，回调直接丢掉，
+        // 于是任何在"准备出发"期间插进来的第二句话（比如一段对话）都会让这个
+        // 居民**永远停在原地**——isPreparingToMove 再也没人清，而每帧的驱动
+        // 看到 currentAction 还挂着就直接 return。
+        //
+        // 话被打断可以，但等在后面的动作不能跟着一起没。
+        dismissSpeechBubble(previousBubble, agentName);
     }
 
     // 先用临时文本测量实际尺寸
@@ -2751,7 +2806,10 @@ function showAgentSpeech(agentName, speechContent, onComplete) {
 
     const container = this.add.container(0, 0, [bubbleBg, bubbleText]);
     container.alpha = 0;
-    const speechBubble = { container, cancelled: false, typingEvent: null, fadeTimer: null };
+    // onComplete 存在气泡上：不管这个气泡是正常说完、被下一句替换，还是被
+    // 玩家接管打断，dismissSpeechBubble 都能把等它的人放行。
+    const speechBubble = { container, cancelled: false, typingEvent: null,
+                           fadeTimer: null, released: false, onComplete };
     activeSpeechBubbles[agentName] = speechBubble;
     
     // 淡入动画
@@ -2765,7 +2823,7 @@ function showAgentSpeech(agentName, speechContent, onComplete) {
     let currentLength = 0;
     const charDelay = 45; // 每个字符间隔（毫秒）
     speechBubble.typingEvent = this.time.addEvent({
-        delay: scaledDuration(charDelay),
+        delay: charDelay,
         repeat: speechContent.length - 1,
         callback: () => {
             if (speechBubble.cancelled) {
@@ -2786,19 +2844,17 @@ function showAgentSpeech(agentName, speechContent, onComplete) {
         this.tweens.add({
             targets: container,
             alpha: 0,
-            duration: scaledDuration(200),
+            duration: 200,
             onComplete: () => {
                 if (speechBubble.cancelled || activeSpeechBubbles[agentName] !== speechBubble) {
                     return;
                 }
 
-                container.destroy();
-                delete activeSpeechBubbles[agentName];
+                // 正常说完也走同一条出口——"回调有没有跑"不该取决于
+                // 气泡是怎么结束的。
+                dismissSpeechBubble(speechBubble, agentName);
                 // 话说完了，表情气泡可以回来了。
                 restoreStatusEmoji(this, agentName);
-                if (typeof onComplete === 'function') {
-                    onComplete();
-                }
             }
         });
     });
@@ -2849,7 +2905,7 @@ function showSleepBubble(scene, agentName) {
         scene.tweens.add({
             targets: container,
             y: y - 6,
-            duration: scaledDuration(900),
+            duration: 900,
             yoyo: true,
             repeat: -1,
             ease: 'Sine.easeInOut'
@@ -2858,7 +2914,7 @@ function showSleepBubble(scene, agentName) {
             targets: bubbleText,
             scale: 1.15,
             alpha: 0.72,
-            duration: scaledDuration(700),
+            duration: 700,
             yoyo: true,
             repeat: -1,
             ease: 'Sine.easeInOut'
@@ -2866,7 +2922,7 @@ function showSleepBubble(scene, agentName) {
         scene.tweens.add({
             targets: container,
             alpha: 1,
-            duration: scaledDuration(250)
+            duration: 250
         })
     ];
 }
@@ -2966,7 +3022,7 @@ function showStatusEmoji(scene, agentName, locationName, actionText = '') {
         scene.tweens.add({
             targets: container,
             alpha: 1,
-            duration: scaledDuration(200)
+            duration: 200
         })
     ];
 }
@@ -3024,7 +3080,7 @@ function startWalkingAnimation(agentName) {
     let frameIndex = 0;
     setAgentPose(agentName, 'walk1');
     walkingFrameTimers[agentName] = gameScene.time.addEvent({
-        delay: scaledDuration(105),
+        delay: 105,
         loop: true,
         callback: () => {
             if (!agents[agentName]) {
@@ -3776,7 +3832,18 @@ function maybeStartDecisionConversation(scene, agentName) {
     const myArea = getAreaName(agentLocations[agentName] || '');
     const targetArea = getAreaName(agentLocations[targetName] || '');
     const targetState = agentState[targetName];
+    const targetSprite = agents[targetName];
     if (!myArea || myArea !== targetArea || targetState.sleeping) {
+        return;
+    }
+    // 已经在路上、或正在说"我要去哪儿"的人，不拉进对话。
+    //
+    // ⚠️ 对话是一次网络请求，回来的时刻是任意的；回应方那句 `convo.answer`
+    // 会**顶掉**他当时正挂着的气泡。而 `announceMovementThen` 恰恰是靠那个
+    // 气泡的回调迈出第一步的——所以这一句话曾经能把一个居民钉在原地一整天。
+    // `dismissSpeechBubble` 现在保证他会被放行，但被放行的结果是**边走边答**：
+    // 不冻了，仍然不对。真正的修法是这里根本不该开口。
+    if (targetSprite?.isMoving || targetSprite?.isPreparingToMove) {
         return;
     }
 
@@ -3911,7 +3978,7 @@ function moveAgentAlongWaypoints(agent, waypoints, onComplete, finalLocation) {
     const distance = Math.abs(agent.x - next.x) + Math.abs(agent.y - next.y);
     const pixelsPerSecond = 52;
     const minLegDuration = 250;
-    const duration = scaledDuration(Math.max(minLegDuration, (distance / pixelsPerSecond) * 1000));
+    const duration = Math.max(minLegDuration, (distance / pixelsPerSecond) * 1000);
 
     const tweenConfig = {
         targets: agent,
@@ -3969,7 +4036,7 @@ function fadeRoute(routeLine) {
     this.tweens.add({
         targets: routeLine,
         alpha: 0,
-        duration: scaledDuration(600),
+        duration: 600,
         onComplete: () => {
             activeRouteLines = activeRouteLines.filter(line => line !== routeLine);
             routeLine.destroy();
