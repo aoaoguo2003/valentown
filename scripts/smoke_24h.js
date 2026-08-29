@@ -71,6 +71,8 @@ globalThis.__smoke = {
   announceMovementThen,
   setSimulationPaused,
   setSimulationSpeed,
+  requestNextDecision,
+  clearCurrentAction,
   activeSpeechBubbles,
   activeStatusBubbles,
   formatSleepLocation,
@@ -403,11 +405,64 @@ assert(
   'different areas must not be considered co-located'
 );
 
-console.log(JSON.stringify({
+// 4. 一轮决策要到动作**真正登记下来**才算结束。
+//
+// ⚠️ 这条是量出来的，不是想出来的。原本 `state.deciding = false` 写在
+// `.then` 的第一行，而拒绝气泡的回放要花好几秒场景时间才轮到
+// `startDecidedAction`。那整段窗口里：deciding 是 false、动作还没登记，
+// 而每帧的驱动是
+//
+//     if (currentAction) { …; return; }
+//     requestNextDecision(…)
+//
+// ——闸门大开。于是又发一次决策请求（**真花钱的 LLM 调用**），回来的第二个
+// 决策撞上正在走路的自己，被判 "Already on the move" 丢掉，顺手把订好的
+// 座位也退了。实况审计里那个理由真的出现过 3 次。
+//
+// 这里用一个"时间冻住"的 scene 桩：定时器永远不触发，于是回放停在半路，
+// 正好是要检查的那一刻。
+(async () => {
+  const agentName = agentNames[1];
+  const noop = () => {};
+  const frozen = new Proxy({}, { get: () => () => frozen });
+  const frozenScene = {
+    add: { text: () => frozen, graphics: () => frozen, container: () => frozen },
+    tweens: { add: noop },                                   // onComplete 永不触发
+    time: { addEvent: () => ({ remove: noop }), delayedCall: () => ({ remove: noop }) }
+  };
+
+  context.fetch = () => Promise.resolve({
+    ok: true,
+    json: () => Promise.resolve({
+      decision: { action: 'read a book', destination: 'Park.Bench', duration_minutes: 30, talk_to: 'nobody' },
+      steps: [{ ok: false, tool: 'buy', observation: 'You are 5 short of the medicine.' }]
+    })
+  });
+
+  api.agents[agentName] = makeSprite({ agentName });
+  api.clearCurrentAction(agentName);
+  api.agentState[agentName].deciding = false;
+  api.agentState[agentName].nextDecisionRetryAt = null;
+
+  api.requestNextDecision(frozenScene, agentName);
+  for (let tick = 0; tick < 8; tick++) await Promise.resolve();   // 让 promise 链跑完
+
+  assert(api.activeSpeechBubbles[agentName],
+    'precondition: the refusal replay is on screen, so the turn is mid-flight');
+  assert(!api.agentCurrentActions[agentName],
+    'precondition: the action is not registered until the replay finishes');
+  assert(api.agentState[agentName].deciding === true,
+    'the turn must stay open until the action is registered, or the driver fires a second paid decision request');
+
+  console.log(JSON.stringify({
   checkedAgents: report.length,
   candidateDestinations: ALLOWED_DESTINATIONS.length,
   routesChecked,
   simulatedMinutes: FULL_DAY_MINUTES,
   activeWindowMinutes: api.DAY_END_MINUTES - api.DAY_START_MINUTES,
   report
-}, null, 2));
+  }, null, 2));
+})().catch(err => {
+  console.error(err.message);
+  process.exit(1);
+});

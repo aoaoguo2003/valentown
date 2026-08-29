@@ -3361,17 +3361,25 @@ function requestNextDecision(scene, agentName) {
 
     fetchNextDecision(agentName, state.lastCompletedAction || null)
         .then(data => {
-            state.deciding = false;
             const decision = data?.decision;
             if (!decision || !decision.destination) {
-                throw new Error('Empty decision');
+                throw new Error('Empty decision');   // .catch 会把 deciding 清掉
             }
 
             state.nextDecisionRetryAt = null;
             recordDecisionTurn(agentName, askedAt, data.steps, decision);
             // 先把世界说过的"不行"演一遍，再开始动作。整个循环是在后端一次
             // 跑完的，前端事后才拿到全部 steps——所以这是**回放**，不是实时。
+            //
+            // ⚠️ **deciding 要一直举到动作真正登记下来。**回放要花好几秒的
+            // 场景时间；这期间动作还没登记，而每帧的驱动是
+            //     if (currentAction) return; else requestNextDecision(…)
+            // ——一旦这里提前放下 deciding，那扇闸门在整个回放期间都是敞开的，
+            // 于是又发一次决策请求（真花钱），回来的第二个决策撞上正在走路的
+            // 自己，被判 "Already on the move" 丢掉，顺手把座位也退了。
+            // 实测闸门确实敞开，且日志里 "Already on the move" 真的出现过。
             replayRefusals(scene, agentName, data.steps, () => {
+                state.deciding = false;
                 startDecidedAction(scene, agentName, decision);
             });
         })
