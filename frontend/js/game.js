@@ -3810,7 +3810,7 @@ function moveAgentOrthogonally(agentName, agent, targetX, targetY, targetLocatio
     moveAgentAlongWaypoints.call(this, agent, [...waypoints], () => {
         fadeRoute.call(this, routeLine);
         onComplete();
-    });
+    }, targetLocation);
 }
 
 function normalizeOrthogonalWaypoints(startX, startY, waypoints) {
@@ -3843,7 +3843,7 @@ function shouldDrawRoute(agentName) {
     return focusedRouteAgent === agentName;
 }
 
-function moveAgentAlongWaypoints(agent, waypoints, onComplete) {
+function moveAgentAlongWaypoints(agent, waypoints, onComplete, finalLocation) {
     if (agent.agentName === userControlledAgentName) {
         agent.isMoving = false;
         agent.isPreparingToMove = false;
@@ -3851,7 +3851,14 @@ function moveAgentAlongWaypoints(agent, waypoints, onComplete) {
     }
 
     if (!waypoints.length) {
-        stopWalkingAnimation(agent.agentName);
+        // ⚠️ **必须把真正的终点传进去。**以前这里不传，于是
+        // ``stopWalkingAnimation`` 用默认参数取 ``agentLocations[agentName]``
+        // ——而那还是**出发前**的位置：它要等下一行的 onComplete 才更新。
+        //
+        // 后果：只要这趟是从自己床边出发的（每天早上醒来第一趟必然如此），
+        // 走到终点的那一刻会被判成"回到床了"，于是躺下 + 瞬移回床，
+        // 而面板显示他正在咖啡馆做事。看起来就是"走完全程突然跳回去"。
+        stopWalkingAnimation(agent.agentName, finalLocation);
         onComplete();
         return;
     }
@@ -3863,7 +3870,7 @@ function moveAgentAlongWaypoints(agent, waypoints, onComplete) {
     // 实测 150,838 段里有 4,410 段（2.9%）是这样。它们不会卡住（空 tween
     // 的 onComplete 照样触发），但会让人**站着不动播 250 毫秒走路动画**。
     if (Math.abs(agent.x - next.x) <= 1 && Math.abs(agent.y - next.y) <= 1) {
-        moveAgentAlongWaypoints.call(this, agent, waypoints, onComplete);
+        moveAgentAlongWaypoints.call(this, agent, waypoints, onComplete, finalLocation);
         return;
     }
 
@@ -3884,7 +3891,7 @@ function moveAgentAlongWaypoints(agent, waypoints, onComplete) {
                 return;
             }
             syncSimulationProgress({ force: true });
-            moveAgentAlongWaypoints.call(this, agent, waypoints, onComplete);
+            moveAgentAlongWaypoints.call(this, agent, waypoints, onComplete, finalLocation);
         }
     };
 
@@ -4116,8 +4123,52 @@ function reconstructNavPath(cameFrom, sourceNode, targetNode) {
 }
 
 // 每日更新逻辑
+// 一帧之内最多允许移动多少像素。走路是 52 像素/秒，最快 4 倍速、一帧
+// 按 100ms 算也就 21 像素——超过这个数只能是有人直接改了坐标。
+const TELEPORT_PIXELS = 40;
+
+let lastKnownPositions = {};
+
+// 跳变探测：每帧比一次位置，谁在没有补间的情况下瞬移就当场记下来。
+//
+// ⚠️ 这不是修复，是**取证**。"人物走完全程突然跳到另一个点"这种现象，
+// 光读代码找不到——直接改坐标的地方有七处，都在合法路径上（开局摆人、
+// 换天、上床）。与其猜，不如让它自己报出是哪一次、跳了多远、当时在干嘛。
+//
+// 结果留在 window.__jumps 里，也打一条 console.warn。开销是七次距离计算，
+// 可以忽略。
+function detectTeleports() {
+    Object.entries(agents).forEach(([agentName, sprite]) => {
+        const previous = lastKnownPositions[agentName];
+        lastKnownPositions[agentName] = { x: sprite.x, y: sprite.y };
+        if (!previous) return;
+
+        const distance = Math.hypot(sprite.x - previous.x, sprite.y - previous.y);
+        if (distance <= TELEPORT_PIXELS) return;
+
+        // 补间正在跑 = 这是动画，不是瞬移。
+        const tweening = gameScene?.tweens?.getTweensOf?.(sprite)?.length > 0;
+        const record = {
+            agent: agentName,
+            distance: Math.round(distance),
+            from: { x: Math.round(previous.x), y: Math.round(previous.y) },
+            to: { x: Math.round(sprite.x), y: Math.round(sprite.y) },
+            tweening,
+            clock: formatSimTime(currentTimeMinutes),
+            phase: agentPhases[agentName],
+            location: agentLocations[agentName],
+            // 谁干的。栈顶几行就是罪魁。
+            stack: new Error().stack.split('\n').slice(2, 6).map(s => s.trim())
+        };
+        (window.__jumps = window.__jumps || []).push(record);
+        console.warn(`[jump] ${agentName} 瞬移 ${record.distance}px`
+            + `（${tweening ? '有补间在跑' : '**没有补间**'}）`, record);
+    });
+}
+
 function update(time, delta) {
     updateManualControl(delta);
+    detectTeleports();
 
     if (!simulationStarted || simulationPaused) {
         return;

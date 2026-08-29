@@ -64,6 +64,11 @@ globalThis.__smoke = {
   navGraph,
   findNavPath,
   shouldUseIndoorPath,
+  moveAgentAlongWaypoints,
+  stopWalkingAnimation,
+  formatSleepLocation,
+  agentLocations,
+  agents,
   abandonMove,
   setCurrentAction,
   agentCurrentActions,
@@ -204,6 +209,44 @@ assert(!api.agentReservations[stuckAgent],
   'a failed move must release the reserved destination');
 assert(api.agentPhases[stuckAgent] === 'Path blocked',
   'the reason a move was abandoned must be visible in the UI');
+
+// 2d. 走完最后一段时，判断姿势用的必须是**终点**，不是出发点。
+//
+// ⚠️ 这条防的是一个每天早上都会发生、却读代码看不出来的错位：
+// `moveAgentAlongWaypoints` 走完最后一段时先调 `stopWalkingAnimation`、
+// 再调 `onComplete`，而 `agentLocations` 是在 `onComplete` 里才更新的。
+// 以前这里不传终点，默认参数于是取到**出发前**的位置——只要这趟是从自己
+// 床边出发的（醒来第一趟必然如此），就会被判成"回到床了"，当场躺下并
+// 瞬移回床，而面板显示他正在目的地做事。
+{
+  const walker = agentNames[0];
+  const bed = api.formatSleepLocation(walker);
+  const seen = [];
+
+  // 从床边出发，走到公园
+  api.agentLocations[walker] = bed;
+  const sprite = { agentName: walker, x: 0, y: 0, isMoving: true, isPreparingToMove: false };
+  api.agents[walker] = sprite;
+
+  // 只关心 stopWalkingAnimation 收到的是哪个地点。先把真函数存到 VM 里，
+  // 再换成探针，用完按顺序还原——顺序错了就会把真函数还原成 undefined。
+  context.__smoke.__probe = (name, finalLocation) => seen.push(finalLocation);
+  vm.runInContext(`
+    globalThis.__smoke.__realStop = stopWalkingAnimation;
+    stopWalkingAnimation = globalThis.__smoke.__probe;
+  `, context);
+
+  api.moveAgentAlongWaypoints.call({}, sprite, [], () => {}, 'Park.Bench');
+
+  vm.runInContext('stopWalkingAnimation = globalThis.__smoke.__realStop;', context);
+  assert(typeof context.__smoke.__realStop === 'function', 'the real function must be restored');
+
+  assert(seen.length === 1, 'the walk should end exactly once');
+  assert(seen[0] === 'Park.Bench',
+    `pose at the end of a walk must be decided by the destination, got ${seen[0]} `
+    + `(the agent set off from ${bed}, so falling back to agentLocations lies)`);
+  assert(seen[0] !== bed, 'a walk away from bed must not end in the "went to bed" branch');
+}
 
 // 3. 对话的同地检测：被派往同一区域的两个 agent 会解析为相同的
 //    区域名（这是前端用来判断触发对话的条件）。
