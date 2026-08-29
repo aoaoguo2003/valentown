@@ -1134,6 +1134,37 @@ function setupUi() {
     const routeFocus = document.getElementById('route-focus');
     const controlAgent = document.getElementById('control-agent');
 
+    const resetButton = document.getElementById('reset-sim');
+    resetButton?.addEventListener('click', () => {
+        // 会删掉所有存档，所以问一次。后端那边还要求请求里带 confirm，
+        // 两道门是刻意的——一次误触的代价是几天的记忆和人格。
+        const ok = window.confirm(
+            'Reset Valentown?\n\n'
+            + 'This erases every resident\'s memories, evolved persona, letters, '
+            + 'money, belongings, tasks and conversations, and returns the town to '
+            + 'the morning of day 1.\n\nThis cannot be undone.'
+        );
+        if (!ok) return;
+
+        resetButton.disabled = true;
+        simulationStarted = false;
+        simulationPaused = false;
+        document.getElementById('status-label').textContent = 'Resetting…';
+
+        requestReset()
+            .then(() => {
+                clearLocalSimulationState();
+                // 后端已经回到第一天，前端重新加载最省事也最不容易漏：
+                // 小人的位置、姿势、气泡、计时器散落在很多地方。
+                window.location.reload();
+            })
+            .catch(error => {
+                console.warn('Reset failed:', error);
+                document.getElementById('status-label').textContent = 'Reset failed';
+                resetButton.disabled = false;
+            });
+    });
+
     document.getElementById('tab-trace')?.addEventListener('click', () => setDetailTab('trace'));
     document.getElementById('tab-convo')?.addEventListener('click', () => setDetailTab('convo'));
     setDetailTab(detailTab);
@@ -1807,6 +1838,11 @@ function updateUi() {
     document.getElementById('start-sim').disabled = !progressLoaded || (simulationStarted && !simulationPaused);
     document.getElementById('pause-sim').disabled = !simulationStarted;
     document.getElementById('pause-sim').textContent = simulationPaused ? 'Resume' : 'Pause';
+    // 重置随时可用（只要后端已经答过话）——卡住的时候恰恰是最想按它的时候。
+    const resetButton = document.getElementById('reset-sim');
+    if (resetButton) {
+        resetButton.disabled = !progressLoaded;
+    }
     updateClockUi();
 
     document.querySelectorAll('.need-card').forEach(card => {
@@ -2456,6 +2492,42 @@ function fetchNextDecision(agentName, lastAction = null) {
             }
             return response.json();
         });
+}
+
+function requestReset() {
+    return fetch(`${BACKEND_BASE_URL}/reset_simulation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // 后端要求明确确认才真的删——重置和查询走同一个 URL。
+        body: JSON.stringify({ confirm: true })
+    }).then(response => {
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        return response.json();
+    });
+}
+
+// 后端清完存档之后，前端自己那份也要清。
+//
+// ⚠️ 漏清的后果和后端漏清一样，只是更容易被当成"后端没重置干净"：
+// 决策轨迹、对话、人格、需求都缓存在这里，不清的话小镇是新的、
+// 面板还留着昨天的内容。
+function clearLocalSimulationState() {
+    agentDecisionLog = {};
+    agentConversations = {};
+    agentPersonas = {};
+    agentNeeds = {};
+    agentCurrentActions = {};
+    agentReservations = {};
+    agentPhases = {};
+    dailyScheduleLoadedByDay = {};
+    conversationsInProgress = {};
+    // 逐键置 null，不整个换掉——这张表预置了所有地点，
+    // 代码里另外两处重置用的也是这个写法。
+    Object.keys(occupiedLocations).forEach(key => {
+        occupiedLocations[key] = null;
+    });
 }
 
 // 请求后端为两位同区域的代理生成一段对话

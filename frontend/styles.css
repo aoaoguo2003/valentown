@@ -590,3 +590,16 @@ button:disabled {
   min-height: 0;
   overflow-y: auto;
 }
+
+/* 重置按钮。它会删掉所有存档，所以视觉上要和 Start/Pause 分开——
+   相邻的两个按钮长得一样时，误触只是时间问题。 */
+button.danger {
+  margin-left: 6px;
+  border-color: rgba(160, 60, 40, 0.35);
+  color: #a4402c;
+}
+
+button.danger:hover:not(:disabled) {
+  background: rgba(194, 85, 63, 0.1);
+  border-color: rgba(160, 60, 40, 0.55);
+}

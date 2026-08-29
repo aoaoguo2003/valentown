@@ -56,5 +56,21 @@ class PersonaStore:
             temp_path.replace(path)
 
 
+    def reset(self):
+        """删掉所有演化出来的人格，回到"还没反思过"的状态。
+
+        只删这个目录下的 persona 文件，不碰目录本身也不碰别的东西——
+        重新开局是"忘掉这几天"，不是"格式化"。
+        """
+        with self._lock:
+            if not self.persona_dir.exists():
+                return
+            for path in self.persona_dir.glob("*.json"):
+                try:
+                    path.unlink()
+                except OSError:
+                    pass
+
+
 # 由 reflection（写入方）和各个 agent（读取方）共用的单例对象。
 persona_store = PersonaStore()

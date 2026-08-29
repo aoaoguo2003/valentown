@@ -9,10 +9,13 @@ from agents.state import (
     complete_agent_action,
     ensure_agent_state_files,
     evaluate_agent_triggers,
+    build_default_agent_state,
     load_agent_state,
     load_all_agent_states,
+    save_agent_state,
     update_agent_state
 )
+from llm import LLMClient
 from runtime import run_decision_loop
 import world.events as events
 from world.economy import economy
@@ -351,6 +354,74 @@ def update_simulation_progress():
         updates["agent_pose_states"] = data["agent_pose_states"]
     with state_lock:
         return jsonify(save_simulation_progress(updates))
+
+
+@app.route('/reset_simulation', methods=['POST'])
+def reset_simulation():
+    """把整座小镇倒回第一天开局。
+
+    ⚠️ **这个接口会删数据**，所以要求请求体里明确带上 ``confirm: true``。
+    没有它就只回一份"会清掉哪些东西"的清单——重置和查询走同一个 URL，
+    误触一次的代价太大。
+
+    ⚠️ **每一份存档都要清，漏一份比不重置更糟**：小镇看上去是新的，
+    而某个人还记着昨天欠谁一件事，行为就再也解释不了了，而且不会报错。
+    往世界里加新的持久化状态时，这里也要跟着加——``test_reset.py`` 逐条
+    核对，而且那些断言是**逐个摘掉这里的调用验证过会变红的**。
+
+        进度      现在第几天、几点、谁在哪、什么姿势
+        对话      按天累积的对话记录
+        经济      余额、背包、货架、社保发放记录
+        信箱      所有人的信
+        任务      跑腿与约定
+        事件      世界里发生过什么
+        需求      饿了没、困不困、闷不闷
+        记忆      每个人的记忆库
+        人格      反思演化出来的自述
+
+    ⚠️ 内存和磁盘要一起清：这些 store 都是进程级单例，只删文件的话，
+    下一次落盘会把内存里那份旧数据原样写回去。
+    """
+    data = request.get_json(silent=True) or {}
+    if not data.get("confirm"):
+        return jsonify({
+            "reset": False,
+            "reason": "confirmation_required",
+            "clears": ["progress", "conversations", "economy", "mailboxes",
+                       "goals", "events", "needs", "memories", "personas"],
+            "hint": 'POST {"confirm": true} to actually reset.',
+        }), 400
+
+    global conversations_by_day
+
+    with state_lock:
+        economy.reset()
+        mailbox.reset()
+        goal_store.reset()
+        events.event_log.reset()
+        memory_system.reset(agent_names)
+        persona_store.reset()
+
+        for agent_name in agent_names:
+            save_agent_state(agent_name, build_default_agent_state(agent_name))
+
+        conversations_by_day = {}
+        save_conversations()
+
+        # 位置留空：前端按各自的床铺重新摆人，不该由后端记着昨天谁睡在哪。
+        fresh = save_simulation_progress({
+            "current_life_day": 1,
+            "current_time_minutes": 6 * 60,
+            "status": "ready",
+            "agent_locations": {},
+            "agent_positions": {},
+            "agent_pose_states": {},
+        })
+
+    # 充过值之后接着跑：熔断是进程级的，重新开局理应把它也松开。
+    LLMClient.clear_fatal_error()
+
+    return jsonify({"reset": True, "progress": fresh})
 
 
 @app.route('/get_agent_internal_states', methods=['GET'])

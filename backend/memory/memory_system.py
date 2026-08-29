@@ -102,6 +102,20 @@ class MemorySystem:
                 self._save_bank(agent_name, self._load_bank(agent_name))
             self._refresh_cache(agent_names)
 
+    def reset(self, agent_names):
+        """把所有人的记忆清空，回到第一天开局——仅供重新开局与测试。
+
+        ⚠️ 内存和磁盘要**一起**清。这个对象是进程级单例，只删文件的话，
+        下一次落盘会把内存里那份旧记忆原样写回去——看上去重置成功了，
+        转头又全回来了。
+        """
+        with self._lock:
+            self.current_life_day = 1
+            self.memories = []
+            for agent_name in agent_names:
+                self._save_bank(agent_name, self._empty_bank(agent_name))
+            self._refresh_cache(agent_names)
+
     def set_life_day(self, life_day, agent_names=None):
         with self._lock:
             self.current_life_day = max(1, int(life_day or 1))
