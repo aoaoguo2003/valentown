@@ -66,6 +66,10 @@ globalThis.__smoke = {
   shouldUseIndoorPath,
   moveAgentAlongWaypoints,
   stopWalkingAnimation,
+  showStatusEmoji,
+  showAgentSpeech,
+  activeSpeechBubbles,
+  activeStatusBubbles,
   formatSleepLocation,
   agentLocations,
   agents,
@@ -246,6 +250,57 @@ assert(api.agentPhases[stuckAgent] === 'Path blocked',
     `pose at the end of a walk must be decided by the destination, got ${seen[0]} `
     + `(the agent set off from ${bed}, so falling back to agentLocations lies)`);
   assert(seen[0] !== bed, 'a walk away from bed must not end in the "went to bed" branch');
+}
+
+// 2e. 文字气泡优先于表情气泡，**和先后顺序无关**。
+//
+// ⚠️ 两个气泡都浮在头顶同一位置，同时出现就互相遮住谁都读不了。话是有
+// 信息量的，表情只是个状态图标——所以文字优先。对话那条路径先
+// showStatusEmoji('chat') 再 showAgentSpeech，必然重叠，所以规则写在两个
+// 函数里各挡一边：说话时收起表情，有话在说时不摆表情。
+{
+  const talker = agentNames[1];
+  api.agents[talker] = { agentName: talker, x: 0, y: 0 };
+  api.agentState[talker] = { sleeping: false, arrived: true };
+  api.agentLocations[talker] = 'Park.Bench';
+
+  const noop = () => {};
+  // Phaser 的显示对象是链式 API（setOrigin().setDepth()…），方法名一个个补
+  // 太脆。用 Proxy：任何方法都返回自己，尺寸这类属性给个数。
+  const stubObject = () => new Proxy({}, {
+    get(target, prop) {
+      if (prop === 'width') return 40;
+      if (prop === 'height') return 14;
+      if (prop === 'x' || prop === 'y' || prop === 'alpha') return 0;
+      if (prop === Symbol.toPrimitive || prop === 'then') return undefined;
+      return (...args) => (target[prop] = args, stubObject());
+    }
+  });
+  const stubScene = {
+    add: { text: stubObject, graphics: stubObject, container: stubObject },
+    tweens: { add: noop },
+    time: { addEvent: () => ({ remove: noop }), delayedCall: () => ({ remove: noop }) }
+  };
+
+  // ① 正在说话时，表情气泡不该被摆出来。
+  //    ⚠️ 这里要传**能用的** scene 桩：传 {} 的话，摘掉守卫之后是靠
+  //    `scene.add.graphics` 崩掉才"红"的，那是偶然，不是断言在起作用。
+  api.activeSpeechBubbles[talker] = { pretend: 'a bubble is up' };
+  api.showStatusEmoji(stubScene, talker, 'Park.Bench', 'read a book');
+  assert(!api.activeStatusBubbles[talker],
+    'an emoji must not be placed while a speech bubble is up — they overlap');
+  delete api.activeSpeechBubbles[talker];
+  delete api.activeStatusBubbles[talker];
+
+  // ② 反过来：开始说话时，已经挂着的表情气泡要被收走。
+  //    这一半才是真正修好"对话时两个气泡叠在一起"的那一半——对话路径
+  //    是先 showStatusEmoji('chat') 再 showAgentSpeech。
+  api.activeStatusBubbles[talker] = { destroy: noop };
+  api.showAgentSpeech.call(stubScene, talker, 'hello there', noop);
+  assert(!api.activeStatusBubbles[talker],
+    'starting to speak must clear an emoji already on screen — text wins');
+
+  delete api.activeSpeechBubbles[talker];
 }
 
 // 3. 对话的同地检测：被派往同一区域的两个 agent 会解析为相同的

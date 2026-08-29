@@ -2633,9 +2633,33 @@ function getFloatingBubblePosition(scene, agent, localBounds, aboveOffset, below
     };
 }
 
+// 说完话之后，把表情气泡放回去——前提是他还站在那儿做着那件事。
+//
+// 只在"到了、没在走、没睡着、手上有动作"时才恢复：正走在路上或者已经躺下
+// 的人不该顶着一个活动图标。
+function restoreStatusEmoji(scene, agentName) {
+    const state = agentState[agentName];
+    const agent = agents[agentName];
+    const action = agentCurrentActions[agentName];
+
+    if (!scene || !agent || !state || !action) return;
+    if (state.sleeping || !state.arrived) return;
+    if (agent.isMoving || agent.isPreparingToMove) return;
+    if (activeSpeechBubbles[agentName]) return;      // 又开始说下一句了
+
+    showStatusEmoji(scene, agentName, agentLocations[agentName], getCurrentActionText(agentName));
+}
+
 function showAgentSpeech(agentName, speechContent, onComplete) {
     const agent = agents[agentName];
     if (!agent) return;
+
+    // 文字气泡优先。两个气泡都浮在头顶上，同时出现就互相遮住谁都读不了——
+    // 而话是有信息量的，表情只是个状态图标。
+    //
+    // ⚠️ 收在这里而不是逐个调用点：对话那条路径先 showStatusEmoji('chat')
+    // 再 showAgentSpeech，必然重叠；写成规则，新增的说话点自动照做。
+    hideStatusBubble(agentName);
 
     const previousBubble = activeSpeechBubbles[agentName];
     if (previousBubble) {
@@ -2770,6 +2794,8 @@ function showAgentSpeech(agentName, speechContent, onComplete) {
 
                 container.destroy();
                 delete activeSpeechBubbles[agentName];
+                // 话说完了，表情气泡可以回来了。
+                restoreStatusEmoji(this, agentName);
                 if (typeof onComplete === 'function') {
                     onComplete();
                 }
@@ -2891,6 +2917,13 @@ function showStatusEmoji(scene, agentName, locationName, actionText = '') {
 
     const agent = agents[agentName];
     if (!agent || agentState[agentName]?.sleeping) {
+        return;
+    }
+
+    // 文字气泡优先，**和先后顺序无关**：正在说话就先不摆表情，
+    // 等它淡出时 restoreStatusEmoji 会把这个图标补回来。
+    // 只在 showAgentSpeech 里挡一边的话，"先说话后到达"那条路径还是会叠。
+    if (activeSpeechBubbles[agentName]) {
         return;
     }
 
