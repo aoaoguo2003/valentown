@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Valentown</title>
-  <link rel="stylesheet" href="styles.css?v=74" />
+  <link rel="stylesheet" href="styles.css?v=75" />
 </head>
 <body>
   <aside id="side-panel" class="side-panel" aria-label="Character details">
@@ -69,8 +69,19 @@
       </section>
 
       <section class="dock-col convo-col">
-        <h2>Conversation Log</h2>
-        <ul id="conversation-list" class="conversation-list">
+        <div class="tab-bar" role="tablist" aria-label="Detail view">
+          <button id="tab-trace" class="tab active" type="button" role="tab" aria-selected="true">Decision trace</button>
+          <button id="tab-convo" class="tab" type="button" role="tab" aria-selected="false">Conversations</button>
+        </div>
+
+        <!-- 决策轨迹：后端每次 /decide_next_action 都带回完整的 steps
+             （工具、参数、模型当时在想什么、成没成、被拒的理由），
+             以前整份丢掉。这一栏就是把它显示出来。 -->
+        <ol id="trace-list" class="trace-list" role="tabpanel" aria-labelledby="tab-trace">
+          <li class="empty-message">No decisions yet — press Start.</li>
+        </ol>
+
+        <ul id="conversation-list" class="conversation-list" role="tabpanel" aria-labelledby="tab-convo" hidden>
           <li class="empty-message">No conversations recorded for this day yet.</li>
         </ul>
       </section>
@@ -81,6 +92,6 @@
 
   <!-- Phaser 3 (served locally from node_modules; run `npm install` first) -->
   <script src="node_modules/phaser/dist/phaser.min.js"></script>
-  <script src="js/game.js?v=81"></script>
+  <script src="js/game.js?v=83"></script>
 </body>
 </html>

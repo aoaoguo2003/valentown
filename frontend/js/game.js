@@ -55,6 +55,14 @@ let manualControlKeys = { w: false, a: false, s: false, d: false };
 let manualControlPrimaryKey = null;
 let manualControlLastSyncAt = 0;
 
+// 每个居民最近几轮的决策轨迹。后端每次 /decide_next_action 都在 `steps` 里
+// 带回这一轮完整的 think → act → refused → replan，而前端一直整份丢掉——
+// 界面上只看得见结果（"走去药房"），看不见过程（读了信、接了任务、
+// 被拒了两次、最后兜底）。这个项目的卖点恰恰是那个过程。
+let agentDecisionLog = {};       // { name: [ {timeText, steps, decision}, … ] }
+let detailTab = 'trace';         // 'trace' | 'convo'
+const DECISION_LOG_LIMIT = 12;   // 只留最近几轮：面板是给人看的，不是日志文件
+
 const DAY_START_MINUTES = 6 * 60;
 const DAY_END_MINUTES = 23 * 60;
 const SIM_MINUTES_PER_SECOND = 1;
@@ -1105,6 +1113,18 @@ function create() {
             progressLoaded = true;
             updateUi();
         }
+    }).catch(error => {
+        // ⚠️ 没有这个 catch 的时候，恢复存档只要抛一次异常，``progressLoaded``
+        // 就永远停在 false——Start 按钮**永久变灰，而界面上一个字都不说**。
+        // 演示时这是致命的：看上去像"点了没反应"，实际是启动链断了。
+        //
+        // 恢复失败不该让整个模拟起不来：小镇从默认状态开跑就是了，
+        // 但要在状态栏说出来，而不是安静地假装一切正常。
+        console.warn('Could not restore saved progress; starting from defaults.', error);
+        progressLoaded = true;
+        const status = document.getElementById('status-label');
+        if (status) status.textContent = 'Fresh start';
+        updateUi();
     });
 }
 
@@ -1113,6 +1133,10 @@ function setupUi() {
     const pauseButton = document.getElementById('pause-sim');
     const routeFocus = document.getElementById('route-focus');
     const controlAgent = document.getElementById('control-agent');
+
+    document.getElementById('tab-trace')?.addEventListener('click', () => setDetailTab('trace'));
+    document.getElementById('tab-convo')?.addEventListener('click', () => setDetailTab('convo'));
+    setDetailTab(detailTab);
 
     startButton.addEventListener('click', () => {
         simulationStarted = true;
@@ -1817,6 +1841,8 @@ function updateAgentPanel() {
             || 'No self-reflection yet — it forms after the first night.';
     }
 
+    renderDecisionTrace();
+
     const conversationList = document.getElementById('conversation-list');
     conversationList.innerHTML = '';
 
@@ -1833,6 +1859,110 @@ function updateAgentPanel() {
         li.innerHTML = `<strong>${escapeHtml(item.with)}</strong><span>${escapeHtml(item.text)}</span>`;
         conversationList.appendChild(li);
     });
+}
+
+// ── 决策轨迹 ────────────────────────────────────────────────────────────
+
+// 一步属于哪一类。**分类不看工具名，看这一步发生了什么**——加一件新工具
+// 不需要动这里，和后端那个"循环不认识任何具体工具"是同一条原则。
+function classifyStep(step) {
+    if (step.tool === 'fallback') return 'fallback';
+    if (step.ok === false) return 'refused';
+    if (step.ends_turn) return 'acted';
+    return 'ok';
+}
+
+function recordDecisionTurn(agentName, timeText, steps, decision) {
+    if (!Array.isArray(steps) || !steps.length) return;
+    const log = agentDecisionLog[agentName] || (agentDecisionLog[agentName] = []);
+    log.unshift({ timeText, steps, decision });   // 最新的在最前面
+    log.length = Math.min(log.length, DECISION_LOG_LIMIT);
+    if (agentName === selectedAgentName) {
+        renderDecisionTrace();
+    }
+}
+
+function renderStep(step) {
+    const kind = classifyStep(step);
+    const li = document.createElement('li');
+    li.className = `trace-step ${kind}`;
+
+    const body = document.createElement('div');
+    let html = `<span class="trace-tool">${escapeHtml(step.tool || '?')}</span>`;
+
+    // 参数只在被拒时展开——这和后端组装 scratchpad 用的是同一条规则：
+    // **「已经知道的」只给结果，「被拒绝的」保留工具和参数**。成功那一步的
+    // observation 已经说清楚发生了什么，再把 action='…' 原样贴一遍是噪音；
+    // 而被拒的那一步，要防的正是重复同一个调用，参数必须看得见。
+    if (step.summary && kind === 'refused') {
+        html += ` <span class="trace-args">${escapeHtml(step.summary)}</span>`;
+    }
+
+    // 模型当时在想什么。**这是它自己的话**，不是我们替它总结的——
+    // "Adam has a fever and needs cold medicine" 这种句子正是那条
+    // "任务一急、约束就隐形"的证据。
+    if (step.thought) {
+        html += `<span class="trace-thought">${escapeHtml(step.thought)}</span>`;
+    }
+
+    if (kind === 'refused') {
+        // 被拒的理由是这一栏存在的全部意义：世界说了不行，而且说了为什么。
+        html += `<span class="trace-why"><code>${escapeHtml(step.reason || 'refused')}</code>`
+              + (step.observation ? ` ${escapeHtml(step.observation)}` : '')
+              + `</span>`;
+    } else if (step.observation) {
+        html += `<span class="trace-observation">${escapeHtml(step.observation)}</span>`;
+    }
+
+    body.innerHTML = html;
+    li.appendChild(body);
+    return li;
+}
+
+function renderDecisionTrace() {
+    const list = document.getElementById('trace-list');
+    if (!list) return;
+    list.innerHTML = '';
+
+    const log = agentDecisionLog[selectedAgentName] || [];
+    if (!log.length) {
+        const empty = document.createElement('li');
+        empty.className = 'empty-message';
+        empty.textContent = simulationStarted
+            ? 'No decisions recorded for this resident yet.'
+            : 'No decisions yet — press Start.';
+        list.appendChild(empty);
+        return;
+    }
+
+    log.forEach(turn => {
+        const refused = turn.steps.filter(step => step.ok === false).length;
+        const li = document.createElement('li');
+        li.className = 'trace-turn';
+
+        const when = document.createElement('div');
+        when.className = 'trace-when';
+        // 步数和被拒次数放在标题上：一眼看得出哪一轮是"想了五步才收敛"的。
+        when.textContent = `${turn.timeText} · ${turn.steps.length} step${turn.steps.length === 1 ? '' : 's'}`
+            + (refused ? ` · ${refused} refused` : '');
+        li.appendChild(when);
+
+        const steps = document.createElement('ol');
+        steps.className = 'trace-steps';
+        turn.steps.forEach(step => steps.appendChild(renderStep(step)));
+        li.appendChild(steps);
+        list.appendChild(li);
+    });
+}
+
+function setDetailTab(tab) {
+    detailTab = tab;
+    document.getElementById('tab-trace')?.classList.toggle('active', tab === 'trace');
+    document.getElementById('tab-convo')?.classList.toggle('active', tab === 'convo');
+    const trace = document.getElementById('trace-list');
+    const convo = document.getElementById('conversation-list');
+    if (trace) trace.hidden = tab !== 'trace';
+    if (convo) convo.hidden = tab !== 'convo';
 }
 
 function updateClockUi() {
@@ -3066,6 +3196,8 @@ function requestNextDecision(scene, agentName) {
     agentPhases[agentName] = 'Deciding what to do next';
     updateUi();
 
+    const askedAt = formatSimTime(currentTimeMinutes);
+
     fetchNextDecision(agentName, state.lastCompletedAction || null)
         .then(data => {
             state.deciding = false;
@@ -3075,7 +3207,12 @@ function requestNextDecision(scene, agentName) {
             }
 
             state.nextDecisionRetryAt = null;
-            startDecidedAction(scene, agentName, decision);
+            recordDecisionTurn(agentName, askedAt, data.steps, decision);
+            // 先把世界说过的"不行"演一遍，再开始动作。整个循环是在后端一次
+            // 跑完的，前端事后才拿到全部 steps——所以这是**回放**，不是实时。
+            replayRefusals(scene, agentName, data.steps, () => {
+                startDecidedAction(scene, agentName, decision);
+            });
         })
         .catch(error => {
             console.warn(`Decision request failed for ${agentName}:`, error);
@@ -3084,6 +3221,50 @@ function requestNextDecision(scene, agentName) {
             agentPhases[agentName] = 'Waiting to retry decision';
             updateUi();
         });
+}
+
+// 一句话版的拒绝理由，给头顶的气泡用。完整的理由在决策轨迹那一栏，
+// 气泡只负责让人**注意到刚才被拒了一次**。
+function shortRefusal(step) {
+    const text = String(step.observation || step.reason || '').trim();
+    if (!text) return null;
+    const firstSentence = text.split(/(?<=[.!?])\s/)[0];
+    return firstSentence.length > 88 ? `${firstSentence.slice(0, 85)}…` : firstSentence;
+}
+
+// 被世界拒绝过的那几步，在动作开始之前补演出来。
+//
+// ⚠️ 这是**回放**：整个 ReAct 循环在后端一次跑完才返回，前端是事后一次性
+// 拿到所有 steps 的，没法边想边演。所以这里只是把已经发生过的事按顺序
+// 演一遍——它诚实，但不要在演示时说成"实时"。
+//
+// 最多演两次：这段时间小人是站着不动的（模拟时钟照走），演满五步会让
+// 整座小镇看起来卡住。
+const MAX_REFUSAL_BUBBLES = 2;
+
+function replayRefusals(scene, agentName, steps, onDone) {
+    const refusals = (Array.isArray(steps) ? steps : [])
+        .filter(step => step.ok === false && step.tool !== 'fallback')
+        .map(shortRefusal)
+        .filter(Boolean)
+        .slice(0, MAX_REFUSAL_BUBBLES);
+
+    if (!refusals.length || agentName === userControlledAgentName || !agents[agentName]) {
+        onDone();
+        return;
+    }
+
+    const playNext = index => {
+        if (index >= refusals.length || !agents[agentName]) {
+            onDone();
+            return;
+        }
+        agentPhases[agentName] = 'Refused — replanning';
+        updateUi();
+        showAgentSpeech.call(scene, agentName, `✕ ${refusals[index]}`, () => playNext(index + 1));
+    };
+
+    playNext(0);
 }
 
 // 执行一条决策：预约目的地并移动过去

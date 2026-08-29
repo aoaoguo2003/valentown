@@ -444,3 +444,149 @@ button:disabled {
     grid-template-columns: 84px 1fr;
   }
 }
+
+/* ── 决策轨迹 ─────────────────────────────────────────────────────────
+   后端每次决策都返回完整的 steps（工具、参数、模型的想法、成没成、
+   被拒的理由），以前整份丢掉。这一栏把它显示出来——项目的卖点是
+   「世界会拒绝、agent 会重新规划」，而那件事以前在界面上完全看不见。 */
+
+.tab-bar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(45, 67, 51, 0.12);
+}
+
+.tab {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 5px 2px 7px;
+  margin-right: 12px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #6b7a70;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.tab.active {
+  color: #23402f;
+  border-bottom-color: #3f9a63;
+}
+
+.trace-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.trace-turn {
+  padding: 8px 0 10px;
+  border-top: 1px solid rgba(45, 67, 51, 0.1);
+}
+
+.trace-turn:first-child {
+  border-top: 0;
+}
+
+.trace-when {
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  color: #7b8a80;
+  margin-bottom: 5px;
+}
+
+.trace-steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.trace-step {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  gap: 6px;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+/* 标记本身就是分类：查到了 / 被世界拒绝 / 收敛成动作 / 兜底 */
+.trace-step::before {
+  content: "·";
+  color: #9aa89f;
+  text-align: center;
+}
+
+.trace-step.ok::before      { content: "✓"; color: #3f9a63; }
+.trace-step.refused::before { content: "✕"; color: #c2553f; }
+.trace-step.acted::before   { content: "▶"; color: #2f6fb0; }
+.trace-step.fallback::before{ content: "⏱"; color: #b07d2f; }
+
+.trace-tool {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 12px;
+  color: #23402f;
+}
+
+.trace-step.refused .trace-tool { color: #a4402c; }
+
+.trace-args {
+  font-family: "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: #7b8a80;
+  word-break: break-word;
+}
+
+.trace-thought {
+  display: block;
+  color: #55655b;
+  font-style: italic;
+}
+
+/* 被拒的理由是这一栏存在的全部意义，给它最高的视觉权重。 */
+.trace-why {
+  display: block;
+  margin-top: 2px;
+  padding: 4px 7px;
+  border-left: 2px solid #c2553f;
+  background: rgba(194, 85, 63, 0.07);
+  color: #7d3526;
+  font-size: 12px;
+}
+
+.trace-why code {
+  font-size: 11px;
+  color: #a4402c;
+}
+
+.trace-observation {
+  display: block;
+  color: #55655b;
+}
+
+/* 世界说「不行」时头顶的红气泡（见 game.js 的 replayRefusals） */
+.refusal-flash { color: #c2553f; }
+
+/* 让标签页固定、只有列表滚动。``.dock-col`` 默认整列滚动，那样标签会
+   跟着内容滚走。 */
+.convo-col {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.convo-col .trace-list,
+.convo-col .conversation-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}

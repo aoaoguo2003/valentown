@@ -78,9 +78,16 @@ def _record(scratchpad, context, *, tool, args, ok, reason, observation, ends_tu
         "ok": ok,
         "reason": reason,
         "observation": observation,
+        # 这一步收不收敛本轮。放进 entry 而不是只放进日志，是因为 scratchpad
+        # 会原样作为 ``steps`` 回给前端——界面要区分"查了一下"和"这一步定了
+        # 接下来一小时干什么"，没有这个字段就只能靠"是不是最后一条"去猜。
+        #
+        # ⚠️ 加字段不改 prompt：``what_you_tried_this_turn`` 只按名字取
+        # ok / observation / tool / summary，不遍历键。金标准 fixture 钉着这一点。
+        "ends_turn": ends_turn,
     }
     scratchpad.append(entry)
-    log_action_event({**context, "step": len(scratchpad) - 1, "ends_turn": ends_turn, **entry})
+    log_action_event({**context, "step": len(scratchpad) - 1, **entry})
     return entry
 
 
