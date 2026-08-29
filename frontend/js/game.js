@@ -3267,6 +3267,41 @@ function replayRefusals(scene, agentName, steps, onDone) {
     playNext(0);
 }
 
+// 一次移动没能开始（找不到目的地、路被堵、正好被接管）时的收场。
+//
+// ⚠️ **必须把已经登记的动作撤掉。**动作是在移动**之前**登记的
+// （`startDecidedAction` 先 setCurrentAction 再 moveAgent），而它带着
+// `endsAtMinutes: null` 和 `arrived: false`。每一帧的驱动是：
+//
+//     if (currentAction) {
+//         if (state.arrived && currentAction.endsAtMinutes !== null && …) 完成
+//         return;                     // ← 否则什么都不做
+//     }
+//     requestNextDecision(…)
+//
+// 也就是说只要动作还挂着、又永远完不成，这个居民**再也不会决策**，
+// 一直冻到当晚睡觉那一支才被解开。移动链上有五个早退口，每一个都会
+// 留下这个残局——所以收场只写一次，五处都调它。
+function abandonMove(agentName, reason) {
+    const agent = agents[agentName];
+    if (agent) {
+        agent.isMoving = false;
+        agent.isPreparingToMove = false;
+    }
+    stopWalkingAnimation(agentName);
+    releaseReservedLocation(agentName);
+    clearCurrentAction(agentName);
+
+    const state = agentState[agentName];
+    if (state) {
+        state.arrived = false;
+        // 隔一会儿再问，免得同一堵墙每帧撞一次、把后端打满。
+        state.nextDecisionRetryAt = currentTimeMinutes + DECISION_RETRY_MINUTES;
+    }
+    agentPhases[agentName] = reason;
+    updateUi();
+}
+
 // 执行一条决策：预约目的地并移动过去
 function startDecidedAction(scene, agentName, decision) {
     const state = agentState[agentName];
@@ -3319,6 +3354,7 @@ function moveAgent(agentName, targetLocation, day) {
     for (const k of keys) {
         if (!coords[k]) {
             console.error(`Error: Location ${targetLocation} not defined`);
+            abandonMove(agentName, 'Unknown destination');
             return;
         }
         coords = coords[k];
@@ -3331,16 +3367,21 @@ function moveAgent(agentName, targetLocation, day) {
 
     if (!agents[agentName]) {
         console.error(`Error: Agent ${agentName} not defined`);
+        abandonMove(agentName, 'Missing sprite');
         return;
     }
     if (agents[agentName].isMoving || agents[agentName].isPreparingToMove) {
+        abandonMove(agentName, 'Already on the move');
         return;
     }
 
     const actionText = getCurrentActionText(agentName);
 
-    announceMovementThen(this, agentName, targetLocation, actionText, () => {
+    // announceMovementThen 有可能拒绝开场（正在移动 / 已被接管），那时候
+    // 回调永远不会来——返回值必须接住，否则又是一个悄无声息的冻结。
+    const announced = announceMovementThen(this, agentName, targetLocation, actionText, () => {
         if (!agents[agentName]) {
+            abandonMove(agentName, 'Missing sprite');
             return;
         }
 
@@ -3349,12 +3390,22 @@ function moveAgent(agentName, targetLocation, day) {
         agentPhases[agentName] = 'Moving';
         updateUi();
 
-        moveAgentOrthogonally.call(this, agentName, agents[agentName], tx, ty, targetLocation, () => {
-            agents[agentName].isMoving = false;
-            agentLocations[agentName] = targetLocation;
-            beginActionAtDestination(this, agentName, targetLocation);
-        });
+        moveAgentOrthogonally.call(this, agentName, agents[agentName], tx, ty, targetLocation,
+            () => {
+                if (!agents[agentName]) {
+                    abandonMove(agentName, 'Missing sprite');
+                    return;
+                }
+                agents[agentName].isMoving = false;
+                agentLocations[agentName] = targetLocation;
+                beginActionAtDestination(this, agentName, targetLocation);
+            },
+            reason => abandonMove(agentName, reason));
     });
+
+    if (!announced) {
+        abandonMove(agentName, 'Could not set off');
+    }
 }
 
 // 当前动作结束：上报完成、写入历史，下一帧重新决策
@@ -3655,10 +3706,18 @@ function maybeStartDecisionConversation(scene, agentName) {
     });
 }
 
-function moveAgentOrthogonally(agentName, agent, targetX, targetY, targetLocation, onComplete) {
+function moveAgentOrthogonally(agentName, agent, targetX, targetY, targetLocation, onComplete, onAbandon) {
+    const giveUp = reason => {
+        if (onAbandon) {
+            onAbandon(reason);
+        } else {
+            agent.isMoving = false;
+            agent.isPreparingToMove = false;
+        }
+    };
+
     if (agentName === userControlledAgentName) {
-        agent.isMoving = false;
-        agent.isPreparingToMove = false;
+        giveUp('Taken over');
         return;
     }
 
@@ -3670,10 +3729,7 @@ function moveAgentOrthogonally(agentName, agent, targetX, targetY, targetLocatio
     );
     if (!waypoints) {
         console.warn(`Path blocked for ${agentName}. Movement cancelled to avoid walking through walls.`);
-        agent.isMoving = false;
-        agentPhases[agentName] = 'Path blocked';
-        releaseReservedLocation(agentName);
-        updateUi();
+        giveUp('Path blocked');
         return;
     }
 
@@ -3728,8 +3784,18 @@ function moveAgentAlongWaypoints(agent, waypoints, onComplete) {
         return;
     }
 
-    startWalkingAnimation(agent.agentName);
     const next = waypoints.shift();
+
+    // 已经站在这个路点上了：跳过，别为它排一段 tween。
+    // 归一化会原样保留每个导航节点，所以"和上一点重合"的路点是常态——
+    // 实测 150,838 段里有 4,410 段（2.9%）是这样。它们不会卡住（空 tween
+    // 的 onComplete 照样触发），但会让人**站着不动播 250 毫秒走路动画**。
+    if (Math.abs(agent.x - next.x) <= 1 && Math.abs(agent.y - next.y) <= 1) {
+        moveAgentAlongWaypoints.call(this, agent, waypoints, onComplete);
+        return;
+    }
+
+    startWalkingAnimation(agent.agentName);
     const distance = Math.abs(agent.x - next.x) + Math.abs(agent.y - next.y);
     const pixelsPerSecond = 52;
     const minLegDuration = 250;
