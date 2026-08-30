@@ -1329,8 +1329,13 @@ function applyFollowCamera() {
 
     const target = followedAgentName ? agents[followedAgentName] : null;
     if (target) {
-        camera.startFollow(target, true, 0.08, 0.08);
         camera.setZoom(FOLLOW_ZOOM);
+        camera.startFollow(target, true, 0.08, 0.08);
+        // ⚠️ **先落到人身上，再开始跟。**lerp 0.08 让镜头跟得平稳，但它同样
+        // 作用在"刚点下 Follow"那一刻：镜头会从小镇另一头慢慢滑过来，头几秒
+        // 里那个人还在画面边上——他这时说的第一句话正好被边缘切掉。而这一刻
+        // 恰恰是最该看清的（拒绝理由就在这时候出现）。
+        camera.centerOn(target.x, target.y);
     } else {
         camera.stopFollow();
         camera.setZoom(1);
