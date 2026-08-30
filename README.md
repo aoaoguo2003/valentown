@@ -38,6 +38,13 @@ An agent picks a tool. The world checks it — the shop is closed, the person is
 not here, you are five short — and answers. The agent replans against the
 refusal, and keeps going until it commits to something that costs time.
 
+![The decision trace panel, showing one turn of five tool calls, two of them refused](docs/screenshot.png)
+
+<sub>One real turn, as the UI shows it: **5 steps, 2 refused**. The world answers
+the successful calls with shelf contents; the refused one keeps its arguments
+(`shop='Supermarket'`) because repeating an identical call is exactly what the
+agent has to avoid next.</sub>
+
 | Decision | What it buys |
 |---|---|
 | 14 tools, each declaring whether it costs game time, how often it may run, who may see it | the loop counts; it knows about no specific tool |
