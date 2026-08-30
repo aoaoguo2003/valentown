@@ -76,6 +76,7 @@ globalThis.__smoke = {
   moveAgent,
   startUnifiedNight,
   cancelAgentMotion,
+  buildMovementSpeech,
   activeSpeechBubbles,
   activeStatusBubbles,
   formatSleepLocation,
@@ -324,6 +325,30 @@ assert(api.agentPhases[stuckAgent] === 'Path blocked',
 
   delete api.activeSpeechBubbles[talker];
 
+  // ③b 两个人站在一起说话，气泡不能叠在一起。
+  //
+  // ⚠️ 这个是录 GIF 看截图才发现的：咖啡馆吧台边的 Mia 和 Arthur 同时开口，
+  // 上面那句把下面那句压掉一半，谁的都读不了。**同一个人**的前后两句由
+  // dismissSpeechBubble 处理，缺的是不同人之间这一半。
+  {
+    const other = agentNames[3];
+    api.agents[talker] = makeSprite({ agentName: talker, x: 600, y: 400 });
+    api.agents[other] = makeSprite({ agentName: other, x: 606, y: 400 });
+
+    api.showAgentSpeech.call(stubScene, talker, 'I am going to living room to rest.', noop);
+    api.showAgentSpeech.call(stubScene, other, 'Morning, this tea is just right.', noop);
+
+    const a = api.activeSpeechBubbles[talker].rect;
+    const b = api.activeSpeechBubbles[other].rect;
+    assert(a && b, 'each bubble must record the space it occupies');
+    const overlaps = a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+    assert(!overlaps,
+      'two residents standing together must not stack their speech bubbles on top of each other');
+
+    delete api.activeSpeechBubbles[talker];
+    delete api.activeSpeechBubbles[other];
+  }
+
   // ③ 被打断的话，等它的**动作**必须照样被放行。
   //
   // ⚠️ 这条是跑起来才发现的：Mia 卡在 "Preparing to move" 一整天没动。
@@ -391,6 +416,31 @@ assert(api.agentPhases[stuckAgent] === 'Path blocked',
     'going back to 1x must restore the scale on both managers');
 
   api.__setScene(undefined);
+}
+
+// 2h. 出发播报别结巴。
+//
+// ⚠️ 模板是「我要去 X 做 Y」，而模型给的 Y **本身常常就在讲去哪儿**，
+// 于是屏幕上出现 `I am going to living room to Walk home to my living room
+// to rest and sleep.` —— 截图里看着像坏了。动作已经自带方向时直接用它，
+// 反正走去哪儿画面上看得见。
+{
+  const stutter = api.buildMovementSpeech(
+    agentNames[0], 'Arthur_home.Living_room', 'Walk home to my living room to rest and sleep.');
+  assert(!/going to .* to Walk/i.test(stutter),
+    'an action that already says where it is going must not be wrapped in "I am going to X to ..." again');
+  assert(stutter === 'Walk home to my living room to rest and sleep.',
+    `a self-directed action should be spoken as-is, got: ${stutter}`);
+
+  const framed = api.buildMovementSpeech(
+    agentNames[0], 'Supermarket.Boss', 'Organize the shelves for the morning rush');
+  assert(/^I am going to .+ to organize the shelves/.test(framed),
+    `an action with no direction of its own keeps the frame, got: ${framed}`);
+
+  // "goodbye" 不该被 "go" 误匹配——词边界曾经被 heredoc 吃成一个退格字符
+  const notMovement = api.buildMovementSpeech(agentNames[0], 'Park.Bench', 'Gossip with Mia');
+  assert(/^I am going to /.test(notMovement),
+    `only movement verbs skip the frame, got: ${notMovement}`);
 }
 
 // 3. 对话的同地检测：被派往同一区域的两个 agent 会解析为相同的

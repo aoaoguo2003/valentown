@@ -2280,8 +2280,20 @@ function getDestinationArea(locationName) {
 }
 
 function buildMovementSpeech(agentName, targetLocation, actionText = 'do an activity') {
-    const taskText = String(actionText || 'do an activity').trim() || 'do an activity';
-    return `I am going to ${formatMovementDestination(agentName, targetLocation)} to ${taskText}.`;
+    const task = String(actionText || '').trim().replace(/[.\s]+$/, '');
+    const destination = formatMovementDestination(agentName, targetLocation);
+    if (!task) {
+        return `I am going to ${destination}.`;
+    }
+
+    // ⚠️ 模型给的动作**本身常常就在讲"去哪儿"**，再套一层"我要去 X 做 Y"
+    // 就成了：`I am going to living room to Walk home to my living room to
+    // rest and sleep.` 截图里看着像坏了。动作已经自带方向时，直接用它——
+    // 反正走去哪儿画面上看得见。
+    if (/^(go|going|head|heading|walk|walking|return|returning|leave|leaving|make my way|set off)\b/i.test(task)) {
+        return `${task[0].toUpperCase()}${task.slice(1)}.`;
+    }
+    return `I am going to ${destination} to ${task[0].toLowerCase()}${task.slice(1)}.`;
 }
 
 function getCurrentActionText(agentName, fallbackAction = 'do an activity') {
@@ -2710,6 +2722,35 @@ function getFloatingBubblePosition(scene, agent, localBounds, aboveOffset, below
     };
 }
 
+// 两个人站在一起说话时，气泡会叠成一团，谁的都读不了。
+//
+// ⚠️ 这个跑起来看截图才发现：咖啡馆吧台边的 Mia 和 Arthur 同时开口，
+// 上面那句把下面那句压掉了一半。**同一个人**的前后两句已经由
+// `dismissSpeechBubble` 处理，缺的是**不同人之间**这一半。
+//
+// 沿着摆放方向挪开（头顶的往上让，脚下的往下让），挪不进视野就放弃——
+// 宁可略有重叠，也不要把气泡推出画面外。
+function avoidBubbleOverlap(agentName, rectX, rectY, rectW, rectH, placeBelow, view) {
+    const gap = 4;
+    let y = rectY;
+
+    for (let attempt = 0; attempt < 6; attempt++) {
+        const clash = Object.entries(activeSpeechBubbles).find(([name, bubble]) => {
+            if (name === agentName || !bubble?.rect) return false;
+            const r = bubble.rect;
+            return rectX < r.x + r.w && rectX + rectW > r.x
+                && y < r.y + r.h && y + rectH > r.y;
+        });
+        if (!clash) return y;
+
+        const other = clash[1].rect;
+        const moved = placeBelow ? other.y + other.h + gap : other.y - rectH - gap;
+        if (moved < view.top || moved + rectH > view.bottom) return rectY;
+        y = moved;
+    }
+    return y;
+}
+
 // 拆掉一个气泡，并且**保证等它的人被放行一次**。
 //
 // 正常淡出、被下一句话替换、被玩家接管打断——三条路都走这里，这样
@@ -2800,9 +2841,12 @@ function showAgentSpeech(agentName, speechContent, onComplete) {
     const fitsAbove = aboveRectY >= view.top;
     const fitsBelow = belowRectY + rectH + tailHeight <= view.bottom;
     const placeBelow = !fitsAbove && fitsBelow;
-    const rectY = placeBelow
+    const preferredRectY = placeBelow
         ? belowRectY
         : clampNumber(aboveRectY, view.top, view.bottom - rectH - tailHeight);
+    const rectY = avoidBubbleOverlap(
+        agentName, rectX, preferredRectY, rectW, rectH, placeBelow, view
+    );
     const tailX = clampNumber(
         x,
         rectX + radius + (tailWidth / 2),
@@ -2858,7 +2902,9 @@ function showAgentSpeech(agentName, speechContent, onComplete) {
     // onComplete 存在气泡上：不管这个气泡是正常说完、被下一句替换，还是被
     // 玩家接管打断，dismissSpeechBubble 都能把等它的人放行。
     const speechBubble = { container, cancelled: false, typingEvent: null,
-                           fadeTimer: null, released: false, onComplete };
+                           fadeTimer: null, released: false, onComplete,
+                           // 让后来的气泡知道这块地方已经被占了
+                           rect: { x: rectX, y: rectY, w: rectW, h: rectH } };
     activeSpeechBubbles[agentName] = speechBubble;
     
     // 淡入动画
