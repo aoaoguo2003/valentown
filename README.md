@@ -8,7 +8,10 @@ English · [简体中文](README.zh-CN.md)
 
 [![tests](https://github.com/aoaoguo2003/valentown/actions/workflows/tests.yml/badge.svg)](https://github.com/aoaoguo2003/valentown/actions/workflows/tests.yml)
 
-![Valentown screenshot](docs/screenshot.png)
+![Valentown](docs/valentown.gif)
+
+<sub>Day 4, 6:58 PM. Adam heads to the park to find Arthur. The world refuses —
+and does not say where Arthur actually is.</sub>
 
 </div>
 
