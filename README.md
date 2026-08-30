@@ -10,9 +10,6 @@ English · [简体中文](README.zh-CN.md)
 
 ![Valentown](docs/valentown.gif)
 
-<sub>Day 4, 6:58 PM. Adam heads to the park to find Arthur. The world refuses —
-and does not say where Arthur actually is.</sub>
-
 </div>
 
 ---

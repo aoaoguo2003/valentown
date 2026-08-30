@@ -10,9 +10,6 @@
 
 ![Valentown](docs/valentown.gif)
 
-<sub>第 4 天 18:58。Adam 去公园找 Arthur，世界拒绝了他——
-并且没有告诉他 Arthur 究竟在哪。</sub>
-
 </div>
 
 ---
