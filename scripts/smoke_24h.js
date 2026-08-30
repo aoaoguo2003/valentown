@@ -77,6 +77,7 @@ globalThis.__smoke = {
   startUnifiedNight,
   cancelAgentMotion,
   buildMovementSpeech,
+  releaseLostAnnouncements,
   activeSpeechBubbles,
   activeStatusBubbles,
   formatSleepLocation,
@@ -441,6 +442,42 @@ assert(api.agentPhases[stuckAgent] === 'Path blocked',
   const notMovement = api.buildMovementSpeech(agentNames[0], 'Park.Bench', 'Gossip with Mia');
   assert(/^I am going to /.test(notMovement),
     `only movement verbs skip the frame, got: ${notMovement}`);
+}
+
+// 2i. 播报丢了，回合也要交还——否则整座小镇过不了这一天。
+//
+// ⚠️ `isPreparingToMove` 是一句承诺：「有个气泡，它结束时会来叫我。」
+// 气泡没了而标志还在，那个人就不动了；更糟的是就寝流程里
+//
+//     if (pastBedtime) { if (busyMoving || …) return; }
+//
+// 的 busyMoving 包含这个标志，于是他连回家上床都走不到，state.moved 永远
+// 为假，**换天被一个人堵死**。真跑里就是这样：六个人睡着，一个人停在
+// Preparing to move，时钟钉死在 23:00 十一分钟没动。
+{
+  const stranded = agentNames[4];
+  api.agents[stranded] = makeSprite({ agentName: stranded, isPreparingToMove: true });
+  delete api.activeSpeechBubbles[stranded];
+  api.setCurrentAction(stranded, {
+    action: 'read a book', destination: 'Park.Bench',
+    durationMinutes: 30, talkTo: null, endsAtMinutes: null, source: 'llm'
+  });
+
+  api.releaseLostAnnouncements();
+
+  assert(api.agents[stranded].isPreparingToMove === false,
+    'a promise that no bubble can keep must not park the resident forever');
+  assert(!api.agentCurrentActions[stranded],
+    'releasing a lost announcement must hand the turn back, or the town cannot roll over to the next day');
+
+  // 反过来：气泡还在的时候不许动它
+  api.agents[stranded].isPreparingToMove = true;
+  api.activeSpeechBubbles[stranded] = { pretend: 'still speaking' };
+  api.releaseLostAnnouncements();
+  assert(api.agents[stranded].isPreparingToMove === true,
+    'an announcement still on screen must be left alone');
+  delete api.activeSpeechBubbles[stranded];
+  api.agents[stranded].isPreparingToMove = false;
 }
 
 // 3. 对话的同地检测：被派往同一区域的两个 agent 会解析为相同的

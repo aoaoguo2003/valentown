@@ -4385,9 +4385,32 @@ function detectTeleports() {
     });
 }
 
+// `isPreparingToMove` 是一句承诺：「有个气泡，它结束时会来叫我。」
+// 气泡没了而标志还在，这句承诺就是断的——那个人从此不动，而且
+//
+//     if (pastBedtime) { if (busyMoving || …) return; }
+//
+// 里的 busyMoving 包含这个标志，于是他连"回家上床"都走不到，`state.moved`
+// 永远为假，**整座小镇过不了这一天**。真跑里就这么卡了：六个人睡着，
+// 一个人停在 Preparing to move，时钟钉死在 23:00 十一分钟没动。
+//
+// 这里不掩盖成因——`console.warn` 把它留在日志里，同时按 `abandonMove`
+// 的老规矩把回合交还，让那个人下一轮重新决策。
+function releaseLostAnnouncements() {
+    for (const [agentName, sprite] of Object.entries(agents)) {
+        if (!sprite?.isPreparingToMove) continue;
+        if (activeSpeechBubbles[agentName] || agentName === userControlledAgentName) continue;
+
+        console.warn(`Announcement for ${agentName} ended without its callback; releasing the turn.`);
+        sprite.isPreparingToMove = false;
+        abandonMove(agentName, 'Announcement lost');
+    }
+}
+
 function update(time, delta) {
     updateManualControl(delta);
     detectTeleports();
+    releaseLostAnnouncements();
 
     if (!simulationStarted || simulationPaused) {
         return;
