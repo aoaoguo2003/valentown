@@ -29,6 +29,11 @@ let nightInProgress = false;
 let simulationSpeed = 1;
 let focusedRouteAgent = null;  // 除非聚焦到某个代理，否则路径不显示
 let selectedAgentName = 'Ron Parker';
+// 跟着谁看。null = 全镇视角。
+let followedAgentName = null;
+// 2.6 是量出来的：全镇视角下气泡文字在屏幕上只有 6.6px，乘 2.6 到约 17px
+// ——刚好是"截成 GIF 之后还读得出来"的下限。
+const FOLLOW_ZOOM = 2.6;
 let userControlledAgentName = null;
 let gameScene = null;
 let activeRouteLines = [];
@@ -1191,6 +1196,7 @@ function setupUi() {
     });
 
     controlAgent.addEventListener('click', () => toggleUserControl(selectedAgentName));
+    document.getElementById('follow-agent')?.addEventListener('click', () => toggleFollowCamera(selectedAgentName));
     window.addEventListener('keydown', event => handleUserControlKey(event));
     window.addEventListener('keyup', event => handleUserControlKeyUp(event));
     window.addEventListener('blur', () => clearManualControlKeys());
@@ -1297,12 +1303,48 @@ function fetchPersona(agentName) {
 
 function selectAgent(agentName) {
     selectedAgentName = agentName;
+    // 跟随模式下，换人就换镜头——否则点了别人，画面还锁在原来那个人身上。
+    if (followedAgentName) {
+        followedAgentName = agentName;
+        applyFollowCamera();
+    }
     if (!(agentName in agentPersonas)) {
         fetchPersona(agentName);
     }
     refreshAgentTints();
     updateRouteControls();
     updateUi();
+}
+
+// 镜头跟着一个人走，还是退回全镇视角。
+//
+// 相机在 create 时就 setBounds 到整个小镇，所以放大之后 Phaser 会自己把
+// 视野夹在世界内，不会露出边界外的空白。气泡的位置本来就按
+// `camera.worldView` 夹取（见 getCameraWorldView），放大后不用另外处理。
+function applyFollowCamera() {
+    const camera = gameScene?.cameras?.main;
+    if (!camera) {
+        return;
+    }
+
+    const target = followedAgentName ? agents[followedAgentName] : null;
+    if (target) {
+        camera.startFollow(target, true, 0.08, 0.08);
+        camera.setZoom(FOLLOW_ZOOM);
+    } else {
+        camera.stopFollow();
+        camera.setZoom(1);
+        camera.setScroll(0, 0);
+    }
+}
+
+function toggleFollowCamera(agentName) {
+    if (!agents[agentName]) {
+        return;
+    }
+    followedAgentName = followedAgentName === agentName ? null : agentName;
+    applyFollowCamera();
+    updateRouteControls();
 }
 
 function refreshAgentTints() {
@@ -1320,10 +1362,17 @@ function refreshAgentTints() {
 function updateRouteControls() {
     const routeFocus = document.getElementById('route-focus');
     const controlAgent = document.getElementById('control-agent');
+    const followAgent = document.getElementById('follow-agent');
     const manualControlHint = document.getElementById('manual-control-hint');
 
     if (!routeFocus || !controlAgent) {
         return;
+    }
+
+    if (followAgent) {
+        const following = followedAgentName === selectedAgentName;
+        followAgent.textContent = following ? 'Zoom Out' : 'Follow';
+        followAgent.classList.toggle('active', following);
     }
 
     routeFocus.textContent = focusedRouteAgent === selectedAgentName

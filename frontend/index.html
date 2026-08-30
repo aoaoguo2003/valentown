@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Valentown</title>
-  <link rel="stylesheet" href="styles.css?v=76" />
+  <link rel="stylesheet" href="styles.css?v=77" />
 </head>
 <body>
   <aside id="side-panel" class="side-panel" aria-label="Character details">
@@ -62,6 +62,10 @@
 
         <div class="route-controls" aria-label="Route display controls">
           <button id="route-focus" type="button">Show Path</button>
+          <!-- 全镇视角下人只有 23px 高、气泡文字 6.6px——看得见谁在动，
+               看不清他在说什么。跟随镜头是把"世界拒绝了他"这件事变得
+               读得出来的唯一办法。 -->
+          <button id="follow-agent" type="button">Follow</button>
           <button id="control-agent" type="button">Control</button>
         </div>
         <p id="manual-control-hint" class="manual-control-hint" hidden>Manual mode: use W/A/S/D. This agent's autonomous decisions are paused.</p>
@@ -94,6 +98,6 @@
 
   <!-- Phaser 3 (served locally from node_modules; run `npm install` first) -->
   <script src="node_modules/phaser/dist/phaser.min.js"></script>
-  <script src="js/game.js?v=92"></script>
+  <script src="js/game.js?v=93"></script>
 </body>
 </html>

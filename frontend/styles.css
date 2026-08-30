@@ -287,7 +287,9 @@ button:disabled {
 
 .route-controls {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* 三个按钮：宽的时候一行摆开，窄的时候自己折。写死两列的话第三个
+     按钮会单独掉一行，看着像没对齐。 */
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
   gap: 6px;
   margin-bottom: 14px;
 }
